@@ -1,6 +1,5 @@
 import streamlit as st
 import requests
-import json
 from datetime import datetime
 
 st.set_page_config(
@@ -9,10 +8,9 @@ st.set_page_config(
     layout="centered"
 )
 
-# Актуальный WEBHOOK URL из Версии 3
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbx-uDOFOarTm9v64ImI8c1aO9wWavHJbQjuBbW14mXpwMwh-f97nONJwNP1jcgh1BVN/exec"
+# Ваша рабочая ссылка на веб-приложение
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw7iVtUeZTeUXjzoSheQfb_RXHjECN42VG_VeRwa7ILR6xcH8Y_XICR3JcKafUMFfGR/exec"
 
-# Фирменный дизайн ДАВАЙ ЗАПОСТИМ!
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
@@ -38,7 +36,6 @@ brand_css = """
         font-weight: 700 !important;
     }
 
-    /* Кнопка отправки */
     div.stButton > button {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
@@ -49,30 +46,24 @@ brand_css = """
         width: 100% !important;
     }
     
-    div.stButton > button p,
-    div.stButton > button div,
-    div.stButton > button span {
+    div.stButton > button p {
         color: #1A1A1A !important;
         font-weight: 800 !important;
     }
     
     div.stButton > button:hover {
         background-color: #B795E8 !important;
-        color: #1A1A1A !important;
     }
 
-    /* Сиреневые плашки выбранных элементов (#B795E8) */
     span[data-baseweb="tag"],
-    div[data-baseweb="tag"],
-    [data-baseweb="tag"] {
+    div[data-baseweb="tag"] {
         background-color: #B795E8 !important;
         color: #1A1A1A !important;
         font-weight: 700 !important;
         border-radius: 6px !important;
     }
 
-    span[data-baseweb="tag"] *,
-    div[data-baseweb="tag"] * {
+    span[data-baseweb="tag"] * {
         color: #1A1A1A !important;
         fill: #1A1A1A !important;
     }
@@ -89,10 +80,6 @@ brand_css = """
 
     .stCheckbox span {
         color: #F7F7F7 !important;
-    }
-    
-    hr {
-        border-color: #333333 !important;
     }
 </style>
 """
@@ -117,30 +104,15 @@ team_members = [
 ]
 
 projects = [
-    "Стоматология для детей",
-    "KISS ME FLOWERS",
-    "Вельвет Лазер",
-    "Любимая Кухня",
-    "Лекотека",
-    "Рыболов Сервис",
-    "Сулугуни",
-    "МЦ \"Да Винчи\"",
-    "ТПП",
-    "ООО ИНТИНСКОЕ",
-    "Астромед",
-    "Ресторан Спасский",
-    "Дима Третий",
-    "KATSU",
-    "ДАВАЙ ЗАПОСТИМ"
+    "Стоматология для детей", "KISS ME FLOWERS", "Вельвет Лазер", 
+    "Любимая Кухня", "Лекотека", "Рыболов Сервис", "Сулугуни", 
+    "МЦ \"Да Винчи\"", "ТПП", "ООО ИНТИНСКОЕ", "Астромед", 
+    "Ресторан Спасский", "Дима Третий", "KATSU", "ДАВАЙ ЗАПОСТИМ"
 ]
 
 roles = [
-    "Проектный менеджер",
-    "Контентмейкер",
-    "Видеограф",
-    "Дизайнер",
-    "Монтажер",
-    "Региональная управляющая"
+    "Проектный менеджер", "Контентмейкер", "Видеограф", 
+    "Дизайнер", "Монтажер", "Региональная управляющая"
 ]
 
 col1, col2 = st.columns(2)
@@ -158,7 +130,6 @@ st.markdown("---")
 st.subheader("📋 Проекты и выполняемые роли")
 
 selected_projects = st.multiselect("Выберите проекты, над которыми работали", projects)
-
 task_data = {}
 
 if selected_projects:
@@ -224,9 +195,13 @@ if st.button("🚀 Отправить отчет"):
             })
         
         try:
-            res = requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
-            st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
-            st.balloons()
-            st.toast("Данные записаны!", icon="🎉")
+            res = requests.post(WEBHOOK_URL, json=payload)
+            
+            if res.status_code == 200:
+                st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
+                st.balloons()
+            else:
+                st.error(f"Google отклонил запрос. Статус: {res.status_code}. Проверьте скрипт.")
+                
         except Exception as e:
-            st.error(f"Ошибка отправки: {e}")
+            st.error(f"Ошибка соединения: {e}")
