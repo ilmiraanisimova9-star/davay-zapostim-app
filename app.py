@@ -155,6 +155,7 @@ roles = [
     "Монтажер", 
     "Региональная управляющая",
     "Ведение картографических сервисов",
+    "Комьюнити-менеджмент",
     "Выставление счёта за ОРД",
     "Частичная подмена / Дежурство"
 ]
@@ -165,6 +166,7 @@ subcontractor_roles = [
     "Монтажер", 
     "Видеограф", 
     "Ведение картографических сервисов",
+    "Комьюнити-менеджмент",
     "Выставление счёта за ОРД"
 ]
 
@@ -189,6 +191,8 @@ def calculate_project_payment(proj_name, roles_str, details_str):
             total += 10000
         elif role == "Ведение картографических сервисов":
             total += 2500
+        elif role == "Комьюнити-менеджмент":
+            total += 1500
         elif role == "Выставление счёта за ОРД":
             total += 180
 
@@ -197,9 +201,6 @@ def calculate_project_payment(proj_name, roles_str, details_str):
     elif "KPI: 2 цели" in details_str:
         total += 1000
     elif "KPI: 3 цели" in details_str:
-        total += 1500
-
-    if "Комьюнити (+1500₽)" in details_str:
         total += 1500
 
     return total
@@ -232,38 +233,52 @@ if page == "📝 Сдача отчетов":
         st.markdown("### Детализация по проектам:")
         for proj in selected_projects:
             st.markdown(f"#### Проект: **{proj}**")
+            
+            # 1. Выбор ролей
             proj_roles = st.multiselect(f"Выберите ваши роли в проекте «{proj}»", roles, key=f"roles_{proj}")
             
             extra_info_list = []
             
-            # Блок подмены
-            is_replacement = st.checkbox(f"Была частичная подмена / работал(а) неполный месяц [{proj}]", key=f"repl_check_{proj}")
-            if is_replacement:
-                repl_comment = st.text_input(f"Укажите даты, кого подменяли и суть задач ({proj})", key=f"repl_txt_{proj}")
-                if repl_comment:
-                    extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
-
-            # Расширенный блок для Проектных менеджеров: гибкий выбор подрядчиков
+            # 2. Логика для Проектного менеджера (KPI про себя)
             if "Проектный менеджер" in proj_roles:
+                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
+                extra_info_list.append(f"KPI: {kpi}")
+
+            # 3. Фиксация подмены (для ЛЮБОЙ роли)
+            if proj_roles:
+                is_replacement = st.checkbox(f"Была частичная подмена / работал(а) неполный месяц [{proj}]", key=f"repl_check_{proj}")
+                if is_replacement:
+                    repl_comment = st.text_input(f"Укажите даты, кого подменяли и суть задач ({proj})", key=f"repl_txt_{proj}")
+                    if repl_comment:
+                        extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
+
+            # 4. Логика для Проектного менеджера (состав подрядчиков)
+            if "Проектный менеджер" in proj_roles:
+                st.markdown("---")
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
-                chosen_sub_roles = st.multiselect(f"Какие роли подрядчиков были на проекте «{proj}»?", subcontractor_roles, key=f"sub_roles_{proj}")
+                chosen_sub_roles = st.multiselect(f"Какие роли подрядчиков были на «{proj}»?", subcontractor_roles, key=f"sub_roles_{proj}")
                 
                 team_declared = []
                 for s_role in chosen_sub_roles:
-                    people = st.multiselect(f"Исполнители на роли «{s_role}» [{proj}]", [m for m in team_members if "➕" not in m], key=f"people_{s_role}_{proj}")
-                    if people:
-                        team_declared.append(f"{s_role}: {', '.join(people)}")
+                    sub_list = [m for m in team_members if "➕" not in m] + ["➕ Ввести новое имя"]
+                    people = st.multiselect(f"Исполнители на роли «{s_role}» [{proj}]", sub_list, key=f"people_{s_role}_{proj}")
+                    
+                    final_people_names = []
+                    for p in people:
+                        if p == "➕ Ввести новое имя":
+                            custom_p = st.text_input(f"Введите имя нового человека ({s_role} - {proj})", key=f"custom_{s_role}_{proj}")
+                            if custom_p:
+                                final_people_names.append(custom_p)
+                        else:
+                            final_people_names.append(p)
+                    
+                    if final_people_names:
+                        team_declared.append(f"{s_role}: {', '.join(final_people_names)}")
                 
                 if team_declared:
                     extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
 
-                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
-                extra_info_list.append(f"KPI: {kpi}")
-                
-                if proj == "ООО ИНТИНСКОЕ":
-                    if st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}"):
-                        extra_info_list.append("Комьюнити (+1500₽)")
-
+            # Сдельный объем
             if proj in ["Ресторан Спасский", "Сулугуни", "Астромед"]:
                 v_type = st.selectbox(f"Тип сдельного объема ({proj})", ["Посты", "Клипы"], key=f"v_type_{proj}")
                 v_count = st.number_input(f"Количество единиц ({proj})", min_value=0, value=0, key=f"v_count_{proj}")
@@ -276,11 +291,19 @@ if page == "📝 Сдача отчетов":
             }
             st.markdown("---")
 
-    st.subheader("✨ Разовые и дополнительные задачи")
-    has_extra = st.checkbox("Были ли разовые задачи вне основного тарифа?")
+    st.subheader("✨ Иные задачи, не учтённые выше")
+    has_extra = st.checkbox("Были ли иные задачи за отчетный период?")
     extra_task_desc = ""
     if has_extra:
-        extra_task_desc = st.text_area("Опишите выполненную задачу и запрашиваемую сумму")
+        col_ex1, col_ex2 = st.columns([3, 1])
+        with col_ex1:
+            task_text = st.text_area("Описание выполненных задач")
+        with col_ex2:
+            task_price = st.text_input("Запрашиваемая стоимость (если известна)")
+        
+        if task_text:
+            price_str = f" ({task_price}₽)" if task_price.strip() else " (цена не указана)"
+            extra_task_desc = f"{task_text}{price_str}"
 
     st.markdown(" ")
     if st.button("🚀 Отправить отчет"):
@@ -389,7 +412,7 @@ elif page == "🔒 Дашборд руководителя":
                                     st.write(f"🔹 **{row['Проект']}** | Роли: *{row['Роли']}* | {details} ➔ **{p_sum:,.0f} ₽**".replace(",", " "))
                                 
                                 if row.get("Разовые задачи") and str(row["Разовые задачи"]).strip():
-                                    st.info(f"💡 Разовые задачи (требуют согласования): {row['Разовые задачи']}")
+                                    st.info(f"💡 Иные задачи (требуют согласования): {row['Разовые задачи']}")
                 else:
                     st.info("В таблице пока нет записей.")
             else:
