@@ -295,15 +295,23 @@ if page == "📝 Сдача отчетов":
     has_extra = st.checkbox("Были ли иные задачи за отчетный период?")
     extra_task_desc = ""
     if has_extra:
-        col_ex1, col_ex2 = st.columns([3, 1])
-        with col_ex1:
-            task_text = st.text_area("Описание выполненных задач")
-        with col_ex2:
-            task_price = st.text_input("Запрашиваемая стоимость (если известна)")
+        task_count = st.number_input("Сколько иных задач вы выполнили?", min_value=1, max_value=10, value=1)
+        tasks_list = []
         
-        if task_text:
-            price_str = f" ({task_price}₽)" if task_price.strip() else " (цена не указана)"
-            extra_task_desc = f"{task_text}{price_str}"
+        for i in range(int(task_count)):
+            st.markdown(f"**Задача №{i+1}:**")
+            col_ex1, col_ex2 = st.columns([3, 1])
+            with col_ex1:
+                task_text = st.text_input(f"Описание задачи №{i+1}", key=f"task_txt_{i}")
+            with col_ex2:
+                task_price = st.text_input(f"Запрашиваемая стоимость (₽)", key=f"task_prc_{i}")
+            
+            if task_text:
+                price_str = f" — {task_price}₽" if task_price.strip() else " — цена не указана"
+                tasks_list.append(f"• {task_text}{price_str}")
+        
+        if tasks_list:
+            extra_task_desc = "; ".join(tasks_list)
 
     st.markdown(" ")
     if st.button("🚀 Отправить отчет"):
