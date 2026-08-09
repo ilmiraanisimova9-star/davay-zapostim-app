@@ -1,12 +1,12 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
 
 st.set_page_config(page_title="ДАВАЙ ЗАПОСТИМ! — Сдача отчетов", page_icon="📊", layout="centered")
 
 st.title("📊 ДАВАЙ ЗАПОСТИМ! — Сдача отчетов за месяц")
-st.markdown("Пожалуйста, заполните форму отчета. Вы можете выбрать **несколько проектов и ролей** одновременно.")
+st.markdown("Заполните форму отчета за прошедший месяц. Вы можете выбрать **несколько проектов и несколько ролей** одновременно.")
 
+# Список исполнителей
 executors = [
     "Христина Рочева", 
     "Анастасия Мальцева", 
@@ -17,6 +17,7 @@ executors = [
     "Юля"
 ]
 
+# Проекты
 projects = [
     "Стоматология для детей",
     "KISS ME FLOWERS",
@@ -35,6 +36,7 @@ projects = [
     "ДАВАЙ ЗАПОСТИМ"
 ]
 
+# Роли
 roles = [
     "Проектный менеджер",
     "Контентмейкер",
@@ -54,50 +56,56 @@ with st.form("report_form"):
     st.markdown("---")
     st.subheader("📋 Проекты и выполняемые роли")
     
-    selected_projects = st.multiselect("Выберите проекты", projects)
+    selected_projects = st.multiselect("Выберите проекты, над которыми работали", projects)
     
     task_data = {}
+    total_calculated = 0
+    
     if selected_projects:
-        st.markdown("### Детали по выбранным проектам:")
+        st.markdown("### Детализация по проектам:")
         for proj in selected_projects:
-            st.markdown(f"**Проект: {proj}**")
-            proj_roles = st.multiselect(f"Роли в проекте \"{proj}\"", roles, key=f"roles_{proj}")
+            st.markdown(f"#### Проект: **{proj}**")
+            proj_roles = st.multiselect(f"Выберите ваши роли в проекте «{proj}»", roles, key=f"roles_{proj}")
             
             extra_info = {}
             if "Проектный менеджер" in proj_roles:
-                extra_info["kpi_goals"] = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
+                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
+                extra_info["kpi"] = kpi
+                
                 if proj in ["Стоматология для детей", "Рыболов Сервис", "МЦ \"Да Винчи\""]:
-                    extra_info["cards"] = st.checkbox(f"Ведение картографических сервисов (+2500₽ к премии) [{proj}]", key=f"cards_{proj}")
+                    cards = st.checkbox(f"Ведение картографических сервисов (+2500₽ к премии) [{proj}]", key=f"cards_{proj}")
+                    extra_info["cards"] = cards
+                    
                 if proj == "ООО ИНТИНСКОЕ":
-                    extra_info["community"] = st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}")
-            
-            if proj in ["Ресторан Спасский", "Сулугуни", "Астромед"]:
-                extra_info["volume_type"] = st.selectbox(f"Тип сдельного объема ({proj})", ["Посты", "Клипы"], key=f"v_type_{proj}")
-                extra_info["volume_count"] = st.number_input(f"Количество единиц ({proj})", min_value=0, value=0, key=f"v_count_{proj}")
+                    community = st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}")
+                    extra_info["community"] = community
 
-            task_data[proj] = {
-                "roles": proj_roles,
-                "extra": extra_info
-            }
+            if proj in ["Ресторан Спасский", "Сулугуни", "Астромед"]:
+                v_type = st.selectbox(f"Тип сдельного объема ({proj})", ["Посты", "Клипы"], key=f"v_type_{proj}")
+                v_count = st.number_input(f"Количество единиц ({proj})", min_value=0, value=0, key=f"v_count_{proj}")
+                extra_info["v_type"] = v_type
+                extra_info["v_count"] = v_count
+
+            task_data[proj] = {"roles": proj_roles, "extra": extra_info}
             st.markdown("---")
 
     st.subheader("✨ Разовые и дополнительные задачи")
     has_extra = st.checkbox("Были ли разовые задачи вне основного тарифа?")
     extra_task_desc = ""
     if has_extra:
-        extra_task_desc = st.text_area("Опишите задачу и запрашиваемую сумму")
+        extra_task_desc = st.text_area("Опишите выполненную задачу и запрашиваемую сумму")
 
     submitted = st.form_submit_button("🚀 Отправить отчет")
 
     if submitted:
+        # Проверка заполнения
+        empty_roles = [p for p, data in task_data.items() if not data["roles"]]
+        
         if not executor or not selected_projects:
-            st.error("Пожалуйста, выберите ваше ФИО и хотя бы один проект.")
+            st.error("Ошибка: выберите ваше ФИО и хотя бы один проект.")
+        elif empty_roles:
+            st.error(f"Ошибка: вы не выбрали роли для следующих проектов: {', '.join(empty_roles)}")
         else:
-            st.success("Отчет успешно сформирован и передан в систему!")
-            st.json({
-                "executor": executor,
-                "period": period,
-                "tasks": task_data,
-                "extra_task": extra_task_desc,
-                "timestamp": str(datetime.now())
-            })
+            st.success("✅ Отчет успешно сформирован и передан на утверждение!")
+            st.balloons()
+            st.info("Ваши данные приняты. Расчет выплат будет доступен в сводном ведомости.")
