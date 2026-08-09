@@ -7,54 +7,70 @@ st.set_page_config(
     layout="centered"
 )
 
-# Стилизация строго по брендбуку
+# Подключение Gotham Pro / Montserrat и жёсткое перекрытие стилей
 brand_css = """
 <style>
-    /* Основной фон приложения */
+    @import url('https://fonts.cdnfonts.com/css/gotham-pro');
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
+
+    /* Применяем фирменный шрифт ко всему интерфейсу */
+    html, body, [class*="css"], .stApp, button, input, select, textarea {
+        font-family: 'Gotham Pro', 'Montserrat', sans-serif !important;
+    }
+
+    /* Фон приложения */
     .stApp {
-        background-color: #1A1A1A;
-        color: #F7F7F7;
+        background-color: #1A1A1A !important;
+        color: #F7F7F7 !important;
     }
     
-    /* Главный заголовок */
+    /* Заголовки */
     h1 {
         color: #D8FD81 !important;
         font-weight: 800 !important;
         letter-spacing: -0.5px;
     }
     
-    /* Подзаголовки */
     h2, h3, h4 {
         color: #B795E8 !important;
-    }
-
-    /* Подписи к полям ввода */
-    label, p, .stMarkdown {
-        color: #F7F7F7 !important;
+        font-weight: 700 !important;
     }
 
     /* Главная кнопка "Отправить отчет" */
-    div.stButton > button {
+    div.stButton > button, 
+    div.stButton > button * {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
         border: none !important;
         font-weight: 800 !important;
         font-size: 18px !important;
-        padding: 14px 28px !important;
         border-radius: 12px !important;
-        transition: all 0.3s ease !important;
         width: 100% !important;
-        box-shadow: 0 4px 14px rgba(216, 253, 129, 0.2);
     }
     
     div.stButton > button:hover {
         background-color: #B795E8 !important;
         color: #1A1A1A !important;
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(183, 149, 232, 0.3);
     }
 
-    /* Поля выбора и выпадающие списки */
+    /* Перекрашиваем КРАСНЫЕ плашки в сиреневый (#B795E8) */
+    span[data-baseweb="tag"],
+    div[data-baseweb="tag"],
+    [data-baseweb="tag"] {
+        background-color: #B795E8 !important;
+        color: #1A1A1A !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
+    }
+
+    /* Текст внутри плашек и крестик удаления */
+    span[data-baseweb="tag"] *,
+    div[data-baseweb="tag"] * {
+        color: #1A1A1A !important;
+        fill: #1A1A1A !important;
+    }
+
+    /* Выпадающие поля */
     .stSelectbox div[data-baseweb="select"], 
     .stMultiSelect div[data-baseweb="select"],
     .stTextInput input, 
@@ -65,34 +81,9 @@ brand_css = """
         border-radius: 10px !important;
     }
 
-    /* Замена КРАСНОГО ЦВЕТА в выбранных тегах (проекты и роли) */
-    span[data-baseweb="tag"], 
-    div[data-baseweb="tag"] {
-        background-color: #B795E8 !important;
-        color: #1A1A1A !important;
-        border-radius: 8px !important;
-        font-weight: 700 !important;
-    }
-    
-    /* Крестик удаления тега */
-    span[data-baseweb="tag"] i, 
-    span[data-baseweb="tag"] svg,
-    div[data-baseweb="tag"] svg {
-        fill: #1A1A1A !important;
-        color: #1A1A1A !important;
-    }
-
     /* Чекбоксы */
     .stCheckbox span {
         color: #F7F7F7 !important;
-    }
-    
-    /* Сообщения об успехе и ошибках в фирменных тонах */
-    .stAlert {
-        background-color: #262626 !important;
-        color: #F7F7F7 !important;
-        border: 1px solid #B795E8 !important;
-        border-radius: 12px !important;
     }
     
     /* Разделители */
