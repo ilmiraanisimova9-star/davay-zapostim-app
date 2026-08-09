@@ -9,7 +9,7 @@ st.set_page_config(
     layout="centered"
 )
 
-# Подключение брендовых стилей и шрифта Gotham Pro
+# Перекрытие CSS-стилей и шрифтов
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
@@ -35,8 +35,7 @@ brand_css = """
         font-weight: 700 !important;
     }
 
-    div.stButton > button, 
-    div.stButton > button * {
+    div.stButton > button {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
         border: none !important;
@@ -46,24 +45,29 @@ brand_css = """
         width: 100% !important;
     }
     
+    div.stButton > button p,
+    div.stButton > button div,
+    div.stButton > button span {
+        color: #1A1A1A !important;
+        font-weight: 800 !important;
+    }
+    
     div.stButton > button:hover {
         background-color: #B795E8 !important;
         color: #1A1A1A !important;
     }
 
+    /* Полный перекрас КРАСНЫХ плашек в фиолетовый (#B795E8) */
     span[data-baseweb="tag"],
     div[data-baseweb="tag"],
-    [data-baseweb="tag"] {
-        background-color: #B795E8 !important;
-        color: #1A1A1A !important;
-        font-weight: 700 !important;
-        border-radius: 6px !important;
-    }
-
+    [data-baseweb="tag"],
     span[data-baseweb="tag"] *,
     div[data-baseweb="tag"] * {
+        background-color: #B795E8 !important;
         color: #1A1A1A !important;
         fill: #1A1A1A !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
     }
 
     .stSelectbox div[data-baseweb="select"], 
@@ -91,7 +95,6 @@ st.markdown(brand_css, unsafe_allow_html=True)
 st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчетов")
 st.markdown("Заполните форму отчета за прошедший месяц. Вы можете выбрать **несколько проектов и несколько ролей** одновременно.")
 
-# Подключение к Google Таблице
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 team_members = [
@@ -202,10 +205,9 @@ if st.button("🚀 Отправить отчет"):
         st.error(f"Ошибка: вы не выбрали роли для следующих проектов: {', '.join(empty_roles)}")
     else:
         try:
-            # Чтение текущей таблицы
-            existing_data = conn.read(worksheet="Лист1", usecols=[0,1,2,3,4,5,6], ttl=0)
+            # Чтение таблицы без явной указания кириллического названия листа
+            existing_data = conn.read(usecols=[0,1,2,3,4,5,6], ttl=0)
             
-            # Формирование новых строк для каждого выбранного проекта
             now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             new_rows = []
             
@@ -221,11 +223,11 @@ if st.button("🚀 Отправить отчет"):
                 })
             
             updated_df = pd.concat([existing_data, pd.DataFrame(new_rows)], ignore_index=True)
-            conn.update(worksheet="Лист1", data=updated_df)
+            conn.update(data=updated_df)
             
             st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
             st.balloons()
-            st.toast("Данные записаны!", icon="🎉")
+            st.toast("Данные успешно записаны!", icon="🎉")
             
         except Exception as e:
-            st.error(f"Ошибка при сохранении в таблицу. Убедитесь, что доступ к таблице открыт 'Редактор'. Ошибка: {e}")
+            st.error(f" Ошибка сохранения: {e}")
