@@ -10,8 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Ваша рабочая ссылка на веб-приложение
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbz4-aWJrZ5hS7rjejcPUVnkhtaMnFhsNI50si90q_nathh74qIogvirpXwK_96lKutP/exec"
+
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
@@ -21,13 +21,11 @@ brand_css = """
         font-family: 'Gotham Pro', 'Montserrat', sans-serif !important;
     }
 
-    /* Главный фон приложения */
     .stApp {
         background-color: #1A1A1A !important;
         color: #F7F7F7 !important;
     }
     
-    /* Темный фон для бокового меню (Sidebar) */
     [data-testid="stSidebar"] {
         background-color: #121212 !important;
         border-right: 1px solid #262626 !important;
@@ -44,7 +42,6 @@ brand_css = """
         font-weight: 800 !important;
     }
     
-    /* Заголовки */
     h1 {
         color: #D8FD81 !important;
         font-weight: 800 !important;
@@ -56,7 +53,6 @@ brand_css = """
         font-weight: 700 !important;
     }
 
-    /* Все лейблы (подписи к полям ввода) */
     label, p, .stMarkdown {
         color: #F7F7F7 !important;
         font-size: 15px !important;
@@ -67,7 +63,6 @@ brand_css = """
         font-weight: 600 !important;
     }
 
-    /* Поля ввода и селекты */
     .stSelectbox div[data-baseweb="select"], 
     .stMultiSelect div[data-baseweb="select"],
     .stTextInput input, 
@@ -78,7 +73,6 @@ brand_css = """
         border-radius: 10px !important;
     }
 
-    /* Сиреневые теги выбора (#B795E8) */
     span[data-baseweb="tag"],
     div[data-baseweb="tag"] {
         background-color: #B795E8 !important;
@@ -92,7 +86,6 @@ brand_css = """
         fill: #1A1A1A !important;
     }
 
-    /* Главная кнопка */
     div.stButton > button {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
@@ -111,7 +104,6 @@ brand_css = """
         background-color: #B795E8 !important;
     }
 
-    /* Кастомные контрастные плашки для сообщений (Alerts) */
     .stAlert {
         background-color: #262626 !important;
         border-radius: 10px !important;
@@ -122,15 +114,15 @@ brand_css = """
         color: #FFFFFF !important;
     }
 
-    div[data-baseweb="notification"] {
-        background-color: #262626 !important;
+    [data-testid="stMetricValue"] {
+        color: #D8FD81 !important;
+        font-weight: 800 !important;
     }
 </style>
 """
 
 st.markdown(brand_css, unsafe_allow_html=True)
 
-# Боковое меню навигации
 st.sidebar.title("⚡ ДАВАЙ ЗАПОСТИМ!")
 page = st.sidebar.radio("Выберите раздел:", ["📝 Сдача отчетов", "🔒 Дашборд руководителя"])
 
@@ -157,8 +149,43 @@ projects = [
 
 roles = [
     "Проектный менеджер", "Контентмейкер", "Видеограф", 
-    "Дизайнер", "Монтажер", "Региональная управляющая"
+    "Дизайнер", "Монтажер", "Региональная управляющая",
+    "Частичная подмена / Дежурство"
 ]
+
+def calculate_project_payment(proj_name, roles_str, details_str):
+    total = 0
+    roles_list = [r.strip() for r in roles_str.split(",") if r.strip()]
+    
+    is_40k_project = proj_name in ["KATSU", "Лекотека", "KISS ME FLOWERS", "Вельвет Лазер"]
+    
+    for role in roles_list:
+        if role == "Проектный менеджер":
+            total += 8000
+        elif role == "Контентмейкер":
+            total += 6000 if is_40k_project else 5000
+        elif role == "Дизайнер":
+            total += 4000
+        elif role == "Монтажер":
+            total += 4000
+        elif role == "Видеограф":
+            total += 5000
+        elif role == "Региональная управляющая":
+            total += 10000
+
+    if "KPI: 1 цель" in details_str:
+        total += 500
+    elif "KPI: 2 цели" in details_str:
+        total += 1000
+    elif "KPI: 3 цели" in details_str:
+        total += 1500
+
+    if "Карты (+2500₽)" in details_str:
+        total += 2500
+    if "Комьюнити (+1500₽)" in details_str:
+        total += 1500
+
+    return total
 
 # ----------------------------------------------------
 # СТРАНИЦА 1: ФОРМА СДАЧИ ОТЧЕТОВ
@@ -191,7 +218,26 @@ if page == "📝 Сдача отчетов":
             proj_roles = st.multiselect(f"Выберите ваши роли в проекте «{proj}»", roles, key=f"roles_{proj}")
             
             extra_info_list = []
+            
+            # Блок подмены
+            is_replacement = st.checkbox(f"Была частичная подмена / работал(а) неполный месяц [{proj}]", key=f"repl_check_{proj}")
+            if is_replacement:
+                repl_comment = st.text_input(f"Укажите даты, кого подменяли и суть задач ({proj})", key=f"repl_txt_{proj}")
+                if repl_comment:
+                    extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
+
+            # Специальный блок для Проектных менеджеров: сверка состава команды
             if "Проектный менеджер" in proj_roles:
+                st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
+                cm_team = st.multiselect(f"Контентмейкер(ы) на «{proj}»", [m for m in team_members if "➕" not in m], key=f"cm_{proj}")
+                ds_team = st.multiselect(f"Дизайнер(ы) / Монтажер(ы) на «{proj}»", [m for m in team_members if "➕" not in m], key=f"ds_{proj}")
+                
+                team_declared = []
+                if cm_team: team_declared.append(f"Контент: {', '.join(cm_team)}")
+                if ds_team: team_declared.append(f"Дизайн/Монтаж: {', '.join(ds_team)}")
+                if team_declared:
+                    extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
+
                 kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
                 extra_info_list.append(f"KPI: {kpi}")
                 
@@ -262,17 +308,12 @@ if page == "📝 Сдача отчетов":
 elif page == "🔒 Дашборд руководителя":
     st.title("🔒 Дашборд руководителя")
     
-    # Авторизация по паролю
     password = st.text_input("Введите пароль для доступа к финансовому отчету:", type="password")
     
-    # Установите ваш пароль (по умолчанию: 1234)
     if password == "1234":
         st.success("Доступ разрешен!")
-        
         st.markdown("---")
-        st.subheader("📊 Сводный расчет выплат команде")
         
-        # Получение данных с Google Apps Script (GET запрос)
         try:
             res = requests.get(WEBHOOK_URL)
             if res.status_code == 200:
@@ -280,60 +321,67 @@ elif page == "🔒 Дашборд руководителя":
                 df = pd.DataFrame(raw_data)
                 
                 if not df.empty and "Исполнитель" in df.columns:
-                    # Фильтр по отчетному периоду
                     periods = df["Период"].unique().tolist()
                     selected_period = st.selectbox("Выберите отчетный период:", periods)
                     
                     filtered_df = df[df["Период"] == selected_period]
-                    
-                    st.markdown(f"### Итоги за **{selected_period}**")
-                    
-                    # Группировка по людям
                     executors = filtered_df["Исполнитель"].unique()
                     
-                    total_payout_all = 0
-                    summary_list = []
+                    grand_total = 0
+                    executors_payouts = {}
                     
                     for exec_name in executors:
                         user_rows = filtered_df[filtered_df["Исполнитель"] == exec_name]
-                        projects_count = len(user_rows)
-                        
-                        # Собираем список всех проектов и ролей
-                        proj_details = []
+                        user_sum = 0
                         for idx, row in user_rows.iterrows():
-                            proj_details.append(f"• **{row['Проект']}**: {row['Роли']} ({row['Детали и KPI']})")
-                        
-                        summary_list.append({
-                            "Исполнитель": exec_name,
-                            "Проектов в работе": projects_count,
-                            "Детализация": "<br>".join(proj_details)
-                        })
+                            user_sum += calculate_project_payment(row["Проект"], str(row["Роли"]), str(row["Детали и KPI"]))
+                        executors_payouts[exec_name] = user_sum
+                        grand_total += user_sum
                     
-                    # Отображение сводной таблицы
-                    summary_df = pd.DataFrame(summary_list)
-                    
-                    col_m1, col_m2 = st.columns(2)
-                    col_m1.metric("Всего отчетов получено", len(filtered_df))
-                    col_m2.metric("Человек сдали отчеты", len(executors))
+                    col_m1, col_m2, col_m3 = st.columns(3)
+                    col_m1.metric("Всего отчетов", len(filtered_df))
+                    col_m2.metric("Команда", f"{len(executors)} чел.")
+                    col_m3.metric("Итого к выплате (базово)", f"{grand_total:,.0f} ₽".replace(",", " "))
                     
                     st.markdown("---")
-                    st.markdown("### Сводные карточки членов команды:")
+                    st.subheader("🎯 Статус автосверки (ПМ vs Подрядчики):")
+                    
+                    # Логика поиска заявленных команд
+                    pm_rows = filtered_df[filtered_df["Роли"].str.contains("Проектный менеджер", na=False)]
+                    if not pm_rows.empty:
+                        for idx, pm_row in pm_rows.iterrows():
+                            details = str(pm_row["Детали и KPI"])
+                            if "ЗАЯВЛЕННАЯ КОМАНДА:" in details:
+                                st.info(f"📌 **{pm_row['Проект']}** (ПМ: {pm_row['Исполнитель']}): {details.split('ЗАЯВЛЕННАЯ КОМАНДА:')[1].strip()}")
+                    else:
+                        st.caption("В этом периоде проектные менеджеры пока не указывали составы команд.")
+                    
+                    st.markdown("---")
+                    st.subheader("💰 Сводный расчет по каждому члену команды:")
                     
                     for exec_name in executors:
                         user_rows = filtered_df[filtered_df["Исполнитель"] == exec_name]
-                        with st.expander(f"👤 **{exec_name}** — проектов: {len(user_rows)}"):
-                            st.markdown("**Выполненные проекты и роли:**")
+                        payout = executors_payouts[exec_name]
+                        
+                        with st.expander(f"👤 **{exec_name}** — проектов: {len(user_rows)} | **Базовый расчет: {payout:,.0f} ₽**".replace(",", " ")):
+                            st.markdown("**Детализация расчета:**")
                             for idx, row in user_rows.iterrows():
-                                st.write(f"🔹 **{row['Проект']}** | Роли: *{row['Роли']}* | {row['Детали и KPI']}")
-                                if row.get("Разовые задачи"):
-                                    st.info(f"💡 Разовые задачи: {row['Разовые задачи']}")
+                                details = str(row["Детали и KPI"])
+                                p_sum = calculate_project_payment(row["Проект"], str(row["Роли"]), details)
+                                
+                                if "ПОДМЕНА:" in details:
+                                    st.warning(f"⚠️ **{row['Проект']}** | Роли: *{row['Роли']}* | {details}")
+                                else:
+                                    st.write(f"🔹 **{row['Проект']}** | Роли: *{row['Роли']}* | {details} ➔ **{p_sum:,.0f} ₽**".replace(",", " "))
+                                
+                                if row.get("Разовые задачи") and str(row["Разовые задачи"]).strip():
+                                    st.info(f"💡 Разовые задачи (требуют согласования): {row['Разовые задачи']}")
                 else:
                     st.info("В таблице пока нет записей.")
             else:
-                st.error("Не удалось загрузить данные из Google Таблицы.")
+                st.error("Не удалось получить данные с сервера.")
         except Exception as e:
-            st.warning("В Google Apps Script еще не включен метод получения данных (GET). Сейчас данные пишутся в таблицу нормально.")
-            st.info("Все отчёты сохраняются в вашей Google Таблице в полном объеме!")
+            st.error(f"Ошибка загрузки: {e}")
             
     elif password != "":
         st.error("Неверный пароль. Доступ ограничен.")
