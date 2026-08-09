@@ -256,6 +256,13 @@ if page == "📝 Сдача отчетов":
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
                 chosen_sub_roles = st.multiselect(f"Какие роли подрядчиков были на «{proj}»?", subcontractor_roles, key=f"sub_roles_{proj}")
                 
+                # Проверка на совмещение Контентмейкера и Дизайнера/Монтажера
+                has_cm = "Контентмейкер" in chosen_sub_roles
+                has_des_ed = ("Дизайнер" in chosen_sub_roles) or ("Монтажер" in chosen_sub_roles)
+                
+                if has_cm and has_des_ed:
+                    st.warning(f"⚠️ **Внимание:** На проекте выбран и Контентмейкер, и Дизайнер/Монтажер. Укажите сумму/процент за совмещение в полях ниже.")
+
                 team_declared = []
                 for s_role in chosen_sub_roles:
                     sub_list = [m for m in team_members if "➕" not in m] + ["➕ Ввести новое имя"]
@@ -270,16 +277,17 @@ if page == "📝 Сдача отчетов":
                         else:
                             final_people_names.append(p)
                     
-                    if len(final_people_names) > 1:
-                        st.caption(f"💡 Вы указали несколько человек на роль «{s_role}». Укажите сумму или % работы каждого:")
+                    # Если указано разделение ИЛИ совмещение связки
+                    if len(final_people_names) > 1 or (s_role == "Контентмейкер" and has_des_ed):
+                        st.caption(f"💡 Уточните распределение выплат по роли «{s_role}»:")
                         split_details = []
                         for name in final_people_names:
-                            val = st.text_input(f"Выплата для {name} (например, 2000₽ или 50%)", key=f"split_{s_role}_{name}_{proj}")
+                            val = st.text_input(f"Выплата для {name} (например, 2500₽ или 50% объема)", key=f"split_{s_role}_{name}_{proj}")
                             if val:
                                 split_details.append(f"{name} ({val})")
                             else:
                                 split_details.append(name)
-                        team_declared.append(f"{s_role} [РАЗДЕЛЕНИЕ]: {', '.join(split_details)}")
+                        team_declared.append(f"{s_role} [ПОДМЕНА/СОВМЕЩЕНИЕ]: {', '.join(split_details)}")
                     elif final_people_names:
                         team_declared.append(f"{s_role}: {', '.join(final_people_names)}")
                 
