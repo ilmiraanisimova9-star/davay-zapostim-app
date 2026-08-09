@@ -1,5 +1,7 @@
 import streamlit as st
+import pandas as pd
 from datetime import datetime
+from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="ДАВАЙ ЗАПОСТИМ! — Сдача отчетов", 
@@ -7,24 +9,21 @@ st.set_page_config(
     layout="centered"
 )
 
-# Подключение Gotham Pro / Montserrat и жёсткое перекрытие стилей
+# Подключение брендовых стилей и шрифта Gotham Pro
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
     @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800&display=swap');
 
-    /* Применяем фирменный шрифт ко всему интерфейсу */
     html, body, [class*="css"], .stApp, button, input, select, textarea {
         font-family: 'Gotham Pro', 'Montserrat', sans-serif !important;
     }
 
-    /* Фон приложения */
     .stApp {
         background-color: #1A1A1A !important;
         color: #F7F7F7 !important;
     }
     
-    /* Заголовки */
     h1 {
         color: #D8FD81 !important;
         font-weight: 800 !important;
@@ -36,7 +35,6 @@ brand_css = """
         font-weight: 700 !important;
     }
 
-    /* Главная кнопка "Отправить отчет" */
     div.stButton > button, 
     div.stButton > button * {
         background-color: #D8FD81 !important;
@@ -53,7 +51,6 @@ brand_css = """
         color: #1A1A1A !important;
     }
 
-    /* Перекрашиваем КРАСНЫЕ плашки в сиреневый (#B795E8) */
     span[data-baseweb="tag"],
     div[data-baseweb="tag"],
     [data-baseweb="tag"] {
@@ -63,14 +60,12 @@ brand_css = """
         border-radius: 6px !important;
     }
 
-    /* Текст внутри плашек и крестик удаления */
     span[data-baseweb="tag"] *,
     div[data-baseweb="tag"] * {
         color: #1A1A1A !important;
         fill: #1A1A1A !important;
     }
 
-    /* Выпадающие поля */
     .stSelectbox div[data-baseweb="select"], 
     .stMultiSelect div[data-baseweb="select"],
     .stTextInput input, 
@@ -81,12 +76,10 @@ brand_css = """
         border-radius: 10px !important;
     }
 
-    /* Чекбоксы */
     .stCheckbox span {
         color: #F7F7F7 !important;
     }
     
-    /* Разделители */
     hr {
         border-color: #333333 !important;
     }
@@ -98,7 +91,9 @@ st.markdown(brand_css, unsafe_allow_html=True)
 st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчетов")
 st.markdown("Заполните форму отчета за прошедший месяц. Вы можете выбрать **несколько проектов и несколько ролей** одновременно.")
 
-# Список команды
+# Подключение к Google Таблице
+conn = st.connection("gsheets", type=GSheetsConnection)
+
 team_members = [
     "Анастасия Мальцева",
     "Софья Мальцева",
@@ -113,7 +108,6 @@ team_members = [
     "➕ Добавить свое имя (если нет в списке)"
 ]
 
-# Проекты
 projects = [
     "Стоматология для детей",
     "KISS ME FLOWERS",
@@ -132,7 +126,6 @@ projects = [
     "ДАВАЙ ЗАПОСТИМ"
 ]
 
-# Роли
 roles = [
     "Проектный менеджер",
     "Контентмейкер",
@@ -145,7 +138,6 @@ roles = [
 col1, col2 = st.columns(2)
 with col1:
     selected_executor = st.selectbox("Имя и фамилия (Исполнитель)", team_members)
-    
     if selected_executor == "➕ Добавить свое имя (если нет в списке)":
         executor = st.text_input("Введите ваше имя и фамилию")
     else:
@@ -167,26 +159,29 @@ if selected_projects:
         st.markdown(f"#### Проект: **{proj}**")
         proj_roles = st.multiselect(f"Выберите ваши роли в проекте «{proj}»", roles, key=f"roles_{proj}")
         
-        extra_info = {}
+        extra_info_list = []
         if "Проектный менеджер" in proj_roles:
             kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
-            extra_info["kpi"] = kpi
+            extra_info_list.append(f"KPI: {kpi}")
             
             if proj in ["Стоматология для детей", "Рыболов Сервис", "МЦ \"Да Винчи\""]:
-                cards = st.checkbox(f"Ведение картографических сервисов (+2500₽ к премии) [{proj}]", key=f"cards_{proj}")
-                extra_info["cards"] = cards
+                if st.checkbox(f"Ведение картографических сервисов (+2500₽ к премии) [{proj}]", key=f"cards_{proj}"):
+                    extra_info_list.append("Карты (+2500₽)")
                 
             if proj == "ООО ИНТИНСКОЕ":
-                community = st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}")
-                extra_info["community"] = community
+                if st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}"):
+                    extra_info_list.append("Комьюнити (+1500₽)")
 
         if proj in ["Ресторан Спасский", "Сулугуни", "Астромед"]:
             v_type = st.selectbox(f"Тип сдельного объема ({proj})", ["Посты", "Клипы"], key=f"v_type_{proj}")
             v_count = st.number_input(f"Количество единиц ({proj})", min_value=0, value=0, key=f"v_count_{proj}")
-            extra_info["v_type"] = v_type
-            extra_info["v_count"] = v_count
+            if v_count > 0:
+                extra_info_list.append(f"Объем: {v_type} - {v_count} шт.")
 
-        task_data[proj] = {"roles": proj_roles, "extra": extra_info}
+        task_data[proj] = {
+            "roles": ", ".join(proj_roles), 
+            "extra": "; ".join(extra_info_list)
+        }
         st.markdown("---")
 
 st.subheader("✨ Разовые и дополнительные задачи")
@@ -206,6 +201,31 @@ if st.button("🚀 Отправить отчет"):
     elif empty_roles:
         st.error(f"Ошибка: вы не выбрали роли для следующих проектов: {', '.join(empty_roles)}")
     else:
-        st.success(f"✅ Отчет от **{executor}** успешно сформирован и передан на утверждение!")
-        st.balloons()
-        st.info("Ваши данные приняты. Расчет выплат будет доступен в сводной ведомости.")
+        try:
+            # Чтение текущей таблицы
+            existing_data = conn.read(worksheet="Лист1", usecols=[0,1,2,3,4,5,6], ttl=0)
+            
+            # Формирование новых строк для каждого выбранного проекта
+            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            new_rows = []
+            
+            for proj, data in task_data.items():
+                new_rows.append({
+                    "Дата и время": now_str,
+                    "Исполнитель": executor,
+                    "Период": period,
+                    "Проект": proj,
+                    "Роли": data["roles"],
+                    "Детали и KPI": data["extra"],
+                    "Разовые задачи": extra_task_desc if proj == selected_projects[0] else ""
+                })
+            
+            updated_df = pd.concat([existing_data, pd.DataFrame(new_rows)], ignore_index=True)
+            conn.update(worksheet="Лист1", data=updated_df)
+            
+            st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
+            st.balloons()
+            st.toast("Данные записаны!", icon="🎉")
+            
+        except Exception as e:
+            st.error(f"Ошибка при сохранении в таблицу. Убедитесь, что доступ к таблице открыт 'Редактор'. Ошибка: {e}")
