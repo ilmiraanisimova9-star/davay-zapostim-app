@@ -11,8 +11,7 @@ st.set_page_config(
 )
 
 # Ваша рабочая ссылка на веб-приложение
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbw7iVtUeZTeUXjzoSheQfb_RXHjECN42VG_VeRwa7ILR6xcH8Y_XICR3JcKafUMFfGR/exec"
-
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbz4-aWJrZ5hS7rjejcPUVnkhtaMnFhsNI50si90q_nathh74qIogvirpXwK_96lKutP/exec"
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
