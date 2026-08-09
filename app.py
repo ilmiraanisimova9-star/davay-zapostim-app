@@ -170,13 +170,12 @@ subcontractor_roles = [
     "Выставление счёта за ОРД"
 ]
 
-# Стандартные бюджетные лимиты ролей
+# Финансовая матрица агентства
 ROLE_BASE_RATES = {
-    "Проектный менеджер": 8000,
-    "Контентмейкер (60k)": 5000,
-    "Контентмейкер (40k)": 6000,
-    "Дизайнер": 4000,
-    "Монтажер": 4000,
+    "Проектный менеджер": 8500,
+    "Контентмейкер": 5000,
+    "Дизайнер": 3000,
+    "Монтажер": 5000,
     "Видеограф": 5000,
     "Региональная управляющая": 10000,
     "Ведение картографических сервисов": 2500,
@@ -187,13 +186,12 @@ ROLE_BASE_RATES = {
 def calculate_project_payment(proj_name, roles_str, details_str):
     total = 0
     roles_list = [r.strip() for r in roles_str.split(",") if r.strip()]
-    is_40k_project = proj_name in ["KATSU", "Лекотека", "KISS ME FLOWERS", "Вельвет Лазер"]
     
     for role in roles_list:
         if role == "Проектный менеджер":
             total += ROLE_BASE_RATES["Проектный менеджер"]
         elif role == "Контентмейкер":
-            total += ROLE_BASE_RATES["Контентмейкер (40k)"] if is_40k_project else ROLE_BASE_RATES["Контентмейкер (60k)"]
+            total += ROLE_BASE_RATES["Контентмейкер"]
         elif role == "Дизайнер":
             total += ROLE_BASE_RATES["Дизайнер"]
         elif role == "Монтажер":
@@ -209,6 +207,7 @@ def calculate_project_payment(proj_name, roles_str, details_str):
         elif role == "Выставление счёта за ОРД":
             total += ROLE_BASE_RATES["Выставление счёта за ОРД"]
 
+    # Мотивация по KPI целей для Проектных менеджеров
     if "KPI: 1 цель" in details_str:
         total += 500
     elif "KPI: 2 цели" in details_str:
@@ -247,17 +246,13 @@ if page == "📝 Сдача отчетов":
         for proj in selected_projects:
             st.markdown(f"#### Проект: **{proj}**")
             
-            # 1. Выбор ролей
             proj_roles = st.multiselect(f"Выберите ваши роли в проекте «{proj}»", roles, key=f"roles_{proj}")
-            
             extra_info_list = []
             
-            # 2. Информация для Проектного менеджера (KPI)
             if "Проектный менеджер" in proj_roles:
-                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
+                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (+500₽)", "2 цели (+1000₽)", "3 цели (+1500₽)"], key=f"kpi_{proj}")
                 extra_info_list.append(f"KPI: {kpi}")
 
-            # 3. Фиксация подмены для ЛЮБОЙ роли
             if proj_roles:
                 is_replacement = st.checkbox(f"Была частичная подмена / работал(а) неполный месяц [{proj}]", key=f"repl_check_{proj}")
                 if is_replacement:
@@ -265,7 +260,6 @@ if page == "📝 Сдача отчетов":
                     if repl_comment:
                         extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
 
-            # 4. Состав подрядчиков для Проектного менеджера с учетом разделения бюджетов
             if "Проектный менеджер" in proj_roles:
                 st.markdown("---")
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
@@ -285,7 +279,6 @@ if page == "📝 Сдача отчетов":
                         else:
                             final_people_names.append(p)
                     
-                    # Если подрядчиков на роли несколько — просим ввести распределение
                     if len(final_people_names) > 1:
                         st.caption(f"💡 Вы указали несколько человек на роль «{s_role}». Укажите сумму или % работы каждого:")
                         split_details = []
@@ -302,7 +295,6 @@ if page == "📝 Сдача отчетов":
                 if team_declared:
                     extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
 
-            # Сдельный объем
             if proj in ["Ресторан Спасский", "Сулугуни", "Астромед"]:
                 v_type = st.selectbox(f"Тип сдельного объема ({proj})", ["Посты", "Клипы"], key=f"v_type_{proj}")
                 v_count = st.number_input(f"Количество единиц ({proj})", min_value=0, value=0, key=f"v_count_{proj}")
