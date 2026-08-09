@@ -1,12 +1,99 @@
 import streamlit as st
 from datetime import datetime
 
-st.set_page_config(page_title="ДАВАЙ ЗАПОСТИМ! — Сдача отчетов", page_icon="📊", layout="centered")
+st.set_page_config(
+    page_title="ДАВАЙ ЗАПОСТИМ! — Сдача отчетов", 
+    page_icon="⚡", 
+    layout="centered"
+)
 
-st.title("📊 ДАВАЙ ЗАПОСТИМ! — Сдача отчетов за месяц")
+# Кастомные стили по брендбуку
+brand_css = """
+<style>
+    /* Основной фон приложения */
+    .stApp {
+        background-color: #1A1A1A;
+        color: #F7F7F7;
+    }
+    
+    /* Главный заголовок */
+    h1 {
+        color: #D8FD81 !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.5px;
+    }
+    
+    /* Подзаголовки */
+    h2, h3, h4 {
+        color: #B795E8 !important;
+    }
+
+    /* Подписи к полям ввода */
+    label, p, .stMarkdown {
+        color: #F7F7F7 !important;
+    }
+
+    /* Кнопки и акценты */
+    div.stButton > button:first-child {
+        background-color: #D8FD81 !important;
+        color: #1A1A1A !important;
+        border: none !important;
+        font-weight: 700 !important;
+        font-size: 16px !important;
+        padding: 12px 28px !important;
+        border-radius: 12px !important;
+        transition: all 0.3s ease !important;
+        width: 100%;
+    }
+    
+    div.stButton > button:first-child:hover {
+        background-color: #B795E8 !important;
+        color: #1A1A1A !important;
+        transform: translateY(-2px);
+    }
+
+    /* Поля выбора и ввода */
+    .stSelectbox div[data-baseweb="select"], 
+    .stMultiSelect div[data-baseweb="select"],
+    .stTextInput input, 
+    .stTextArea textarea {
+        background-color: #262626 !important;
+        border: 1px solid #333333 !important;
+        color: #F7F7F7 !important;
+        border-radius: 10px !important;
+    }
+
+    /* Теги выбранных элементов в multiselect */
+    span[data-baseweb="tag"] {
+        background-color: #B795E8 !important;
+        color: #1A1A1A !important;
+        border-radius: 6px !important;
+        font-weight: 600 !important;
+    }
+
+    /* Чекбоксы */
+    .stCheckbox span {
+        color: #F7F7F7 !important;
+    }
+    
+    /* Карточки предупреждений и успеха */
+    .stAlert {
+        border-radius: 12px !important;
+    }
+    
+    /* Разделительная линия */
+    hr {
+        border-color: #333333 !important;
+    }
+</style>
+"""
+
+st.markdown(brand_css, unsafe_allow_html=True)
+
+st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчетов")
 st.markdown("Заполните форму отчета за прошедший месяц. Вы можете выбрать **несколько проектов и несколько ролей** одновременно.")
 
-# Обновленный список команды (без отчеств, без Маши, с новыми членами команды)
+# Обновленный список команды (Виталина Куликова поправлена)
 team_members = [
     "Анастасия Мальцева",
     "Софья Мальцева",
@@ -17,7 +104,7 @@ team_members = [
     "Юлия Лодыгина",
     "Ева Гусева",
     "Дарья Витязева",
-    "Виолетта Куликова",
+    "Виталина Куликова",
     "➕ Добавить свое имя (если нет в списке)"
 ]
 
@@ -54,7 +141,6 @@ col1, col2 = st.columns(2)
 with col1:
     selected_executor = st.selectbox("Имя и фамилия (Исполнитель)", team_members)
     
-    # Поле для ввода имени вручную, если выбран пункт добавления
     if selected_executor == "➕ Добавить свое имя (если нет в списке)":
         executor = st.text_input("Введите ваше имя и фамилию")
     else:
@@ -105,7 +191,7 @@ if has_extra:
     extra_task_desc = st.text_area("Опишите выполненную задачу и запрашиваемую сумму")
 
 st.markdown(" ")
-if st.button("🚀 Отправить отчет", type="primary"):
+if st.button("🚀 Отправить отчет"):
     empty_roles = [p for p, data in task_data.items() if not data["roles"]]
     
     if not executor or executor.strip() == "":
