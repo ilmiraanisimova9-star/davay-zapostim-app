@@ -22,11 +22,30 @@ brand_css = """
         font-family: 'Gotham Pro', 'Montserrat', sans-serif !important;
     }
 
+    /* Главный фон приложения */
     .stApp {
         background-color: #1A1A1A !important;
         color: #F7F7F7 !important;
     }
     
+    /* Темный фон для бокового меню (Sidebar) */
+    [data-testid="stSidebar"] {
+        background-color: #121212 !important;
+        border-right: 1px solid #262626 !important;
+    }
+
+    [data-testid="stSidebar"] * {
+        color: #F7F7F7 !important;
+    }
+
+    [data-testid="stSidebar"] h1, 
+    [data-testid="stSidebar"] h2, 
+    [data-testid="stSidebar"] h3 {
+        color: #D8FD81 !important;
+        font-weight: 800 !important;
+    }
+    
+    /* Заголовки */
     h1 {
         color: #D8FD81 !important;
         font-weight: 800 !important;
@@ -38,7 +57,43 @@ brand_css = """
         font-weight: 700 !important;
     }
 
-    /* Кнопки */
+    /* Все лейблы (подписи к полям ввода) */
+    label, p, .stMarkdown {
+        color: #F7F7F7 !important;
+        font-size: 15px !important;
+    }
+
+    label p {
+        color: #F7F7F7 !important;
+        font-weight: 600 !important;
+    }
+
+    /* Поля ввода и селекты */
+    .stSelectbox div[data-baseweb="select"], 
+    .stMultiSelect div[data-baseweb="select"],
+    .stTextInput input, 
+    .stTextArea textarea {
+        background-color: #262626 !important;
+        border: 1px solid #404040 !important;
+        color: #FFFFFF !important;
+        border-radius: 10px !important;
+    }
+
+    /* Сиреневые теги выбора (#B795E8) */
+    span[data-baseweb="tag"],
+    div[data-baseweb="tag"] {
+        background-color: #B795E8 !important;
+        color: #1A1A1A !important;
+        font-weight: 700 !important;
+        border-radius: 6px !important;
+    }
+
+    span[data-baseweb="tag"] * {
+        color: #1A1A1A !important;
+        fill: #1A1A1A !important;
+    }
+
+    /* Главная кнопка */
     div.stButton > button {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
@@ -57,38 +112,19 @@ brand_css = """
         background-color: #B795E8 !important;
     }
 
-    /* Сиреневые плашки выбора (#B795E8) */
-    span[data-baseweb="tag"],
-    div[data-baseweb="tag"] {
-        background-color: #B795E8 !important;
-        color: #1A1A1A !important;
-        font-weight: 700 !important;
-        border-radius: 6px !important;
-    }
-
-    span[data-baseweb="tag"] * {
-        color: #1A1A1A !important;
-        fill: #1A1A1A !important;
-    }
-
-    .stSelectbox div[data-baseweb="select"], 
-    .stMultiSelect div[data-baseweb="select"],
-    .stTextInput input, 
-    .stTextArea textarea {
+    /* Кастомные контрастные плашки для сообщений (Alerts) */
+    .stAlert {
         background-color: #262626 !important;
-        border: 1px solid #333333 !important;
-        color: #F7F7F7 !important;
         border-radius: 10px !important;
+        border: 1px solid #404040 !important;
     }
 
-    .stCheckbox span {
-        color: #F7F7F7 !important;
+    div[data-testid="stAlert"] * {
+        color: #FFFFFF !important;
     }
 
-    /* Стилизация метрик в админке */
-    [data-testid="stMetricValue"] {
-        color: #D8FD81 !important;
-        font-weight: 800 !important;
+    div[data-baseweb="notification"] {
+        background-color: #262626 !important;
     }
 </style>
 """
