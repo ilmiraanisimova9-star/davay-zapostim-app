@@ -170,31 +170,44 @@ subcontractor_roles = [
     "Выставление счёта за ОРД"
 ]
 
+# Стандартные бюджетные лимиты ролей
+ROLE_BASE_RATES = {
+    "Проектный менеджер": 8000,
+    "Контентмейкер (60k)": 5000,
+    "Контентмейкер (40k)": 6000,
+    "Дизайнер": 4000,
+    "Монтажер": 4000,
+    "Видеограф": 5000,
+    "Региональная управляющая": 10000,
+    "Ведение картографических сервисов": 2500,
+    "Комьюнити-менеджмент": 1500,
+    "Выставление счёта за ОРД": 180
+}
+
 def calculate_project_payment(proj_name, roles_str, details_str):
     total = 0
     roles_list = [r.strip() for r in roles_str.split(",") if r.strip()]
-    
     is_40k_project = proj_name in ["KATSU", "Лекотека", "KISS ME FLOWERS", "Вельвет Лазер"]
     
     for role in roles_list:
         if role == "Проектный менеджер":
-            total += 8000
+            total += ROLE_BASE_RATES["Проектный менеджер"]
         elif role == "Контентмейкер":
-            total += 6000 if is_40k_project else 5000
+            total += ROLE_BASE_RATES["Контентмейкер (40k)"] if is_40k_project else ROLE_BASE_RATES["Контентмейкер (60k)"]
         elif role == "Дизайнер":
-            total += 4000
+            total += ROLE_BASE_RATES["Дизайнер"]
         elif role == "Монтажер":
-            total += 4000
+            total += ROLE_BASE_RATES["Монтажер"]
         elif role == "Видеограф":
-            total += 5000
+            total += ROLE_BASE_RATES["Видеограф"]
         elif role == "Региональная управляющая":
-            total += 10000
+            total += ROLE_BASE_RATES["Региональная управляющая"]
         elif role == "Ведение картографических сервисов":
-            total += 2500
+            total += ROLE_BASE_RATES["Ведение картографических сервисов"]
         elif role == "Комьюнити-менеджмент":
-            total += 1500
+            total += ROLE_BASE_RATES["Комьюнити-менеджмент"]
         elif role == "Выставление счёта за ОРД":
-            total += 180
+            total += ROLE_BASE_RATES["Выставление счёта за ОРД"]
 
     if "KPI: 1 цель" in details_str:
         total += 500
@@ -239,12 +252,12 @@ if page == "📝 Сдача отчетов":
             
             extra_info_list = []
             
-            # 2. Логика для Проектного менеджера (KPI про себя)
+            # 2. Информация для Проектного менеджера (KPI)
             if "Проектный менеджер" in proj_roles:
                 kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
                 extra_info_list.append(f"KPI: {kpi}")
 
-            # 3. Фиксация подмены (для ЛЮБОЙ роли)
+            # 3. Фиксация подмены для ЛЮБОЙ роли
             if proj_roles:
                 is_replacement = st.checkbox(f"Была частичная подмена / работал(а) неполный месяц [{proj}]", key=f"repl_check_{proj}")
                 if is_replacement:
@@ -252,7 +265,7 @@ if page == "📝 Сдача отчетов":
                     if repl_comment:
                         extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
 
-            # 4. Логика для Проектного менеджера (состав подрядчиков)
+            # 4. Состав подрядчиков для Проектного менеджера с учетом разделения бюджетов
             if "Проектный менеджер" in proj_roles:
                 st.markdown("---")
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
@@ -272,7 +285,18 @@ if page == "📝 Сдача отчетов":
                         else:
                             final_people_names.append(p)
                     
-                    if final_people_names:
+                    # Если подрядчиков на роли несколько — просим ввести распределение
+                    if len(final_people_names) > 1:
+                        st.caption(f"💡 Вы указали несколько человек на роль «{s_role}». Укажите сумму или % работы каждого:")
+                        split_details = []
+                        for name in final_people_names:
+                            val = st.text_input(f"Выплата для {name} (например, 2000₽ или 50%)", key=f"split_{s_role}_{name}_{proj}")
+                            if val:
+                                split_details.append(f"{name} ({val})")
+                            else:
+                                split_details.append(name)
+                        team_declared.append(f"{s_role} [РАЗДЕЛЕНИЕ]: {', '.join(split_details)}")
+                    elif final_people_names:
                         team_declared.append(f"{s_role}: {', '.join(final_people_names)}")
                 
                 if team_declared:
