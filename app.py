@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 import pandas as pd
+import re
 from datetime import datetime
 
 st.set_page_config(
@@ -170,7 +171,6 @@ subcontractor_roles = [
     "Выставление счёта за ОРД"
 ]
 
-# Финансовая матрица агентства
 ROLE_BASE_RATES = {
     "Проектный менеджер": 8500,
     "Контентмейкер": 5000,
@@ -183,37 +183,28 @@ ROLE_BASE_RATES = {
     "Выставление счёта за ОРД": 180
 }
 
-def calculate_project_payment(proj_name, roles_str, details_str):
+def parse_extra_tasks_amount(extra_tasks_str):
+    if not extra_tasks_str or not isinstance(extra_tasks_str, str):
+        return 0
+    matches = re.findall(r'—\s*(\d+)\s*₽', extra_tasks_str)
+    return sum(int(m) for m in matches)
+
+def calculate_project_payment(proj_name, roles_str, details_str, extra_tasks_str=""):
     total = 0
     roles_list = [r.strip() for r in roles_str.split(",") if r.strip()]
     
     for role in roles_list:
-        if role == "Проектный менеджер":
-            total += ROLE_BASE_RATES["Проектный менеджер"]
-        elif role == "Контентмейкер":
-            total += ROLE_BASE_RATES["Контентмейкер"]
-        elif role == "Дизайнер":
-            total += ROLE_BASE_RATES["Дизайнер"]
-        elif role == "Монтажер":
-            total += ROLE_BASE_RATES["Монтажер"]
-        elif role == "Видеограф":
-            total += ROLE_BASE_RATES["Видеограф"]
-        elif role == "Региональная управляющая":
-            total += ROLE_BASE_RATES["Региональная управляющая"]
-        elif role == "Ведение картографических сервисов":
-            total += ROLE_BASE_RATES["Ведение картографических сервисов"]
-        elif role == "Комьюнити-менеджмент":
-            total += ROLE_BASE_RATES["Комьюнити-менеджмент"]
-        elif role == "Выставление счёта за ОРД":
-            total += ROLE_BASE_RATES["Выставление счёта за ОРД"]
+        if role in ROLE_BASE_RATES:
+            total += ROLE_BASE_RATES[role]
 
-    # Мотивация по KPI целей для Проектных менеджеров
     if "KPI: 1 цель" in details_str:
         total += 500
     elif "KPI: 2 цели" in details_str:
         total += 1000
     elif "KPI: 3 цели" in details_str:
         total += 1500
+
+    total += parse_extra_tasks_amount(extra_tasks_str)
 
     return total
 
@@ -390,20 +381,30 @@ elif page == "🔒 Дашборд руководителя":
                     executors = filtered_df["Исполнитель"].unique()
                     
                     grand_total = 0
+                    pending_extras_count = 0
+                    pending_extras_sum = 0
                     executors_payouts = {}
                     
                     for exec_name in executors:
                         user_rows = filtered_df[filtered_df["Исполнитель"] == exec_name]
                         user_sum = 0
                         for idx, row in user_rows.iterrows():
-                            user_sum += calculate_project_payment(row["Проект"], str(row["Роли"]), str(row["Детали и KPI"]))
+                            extra_str = str(row.get("Разовые задачи", ""))
+                            extra_amt = parse_extra_tasks_amount(extra_str)
+                            if extra_amt > 0:
+                                pending_extras_count += 1
+                                pending_extras_sum += extra_amt
+                            user_sum += calculate_project_payment(row["Проект"], str(row["Роли"]), str(row["Детали и KPI"]), extra_str)
                         executors_payouts[exec_name] = user_sum
                         grand_total += user_sum
                     
                     col_m1, col_m2, col_m3 = st.columns(3)
                     col_m1.metric("Всего отчетов", len(filtered_df))
                     col_m2.metric("Команда", f"{len(executors)} чел.")
-                    col_m3.metric("Итого к выплате (базово)", f"{grand_total:,.0f} ₽".replace(",", " "))
+                    col_m3.metric("Итого ФОТ (с допами)", f"{grand_total:,.0f} ₽".replace(",", " "))
+                    
+                    if pending_extras_count > 0:
+                        st.warning(f"⚡ **Требуют согласования:** {pending_extras_count} иные задачи на общую сумму **{pending_extras_sum:,.0f} ₽** (уже заложены в итоговый ФОТ выше).".replace(",", " "))
                     
                     st.markdown("---")
                     st.subheader("🎯 Статус автосверки (ПМ vs Подрядчики):")
@@ -424,19 +425,20 @@ elif page == "🔒 Дашборд руководителя":
                         user_rows = filtered_df[filtered_df["Исполнитель"] == exec_name]
                         payout = executors_payouts[exec_name]
                         
-                        with st.expander(f"👤 **{exec_name}** — проектов: {len(user_rows)} | **Базовый расчет: {payout:,.0f} ₽**".replace(",", " ")):
+                        with st.expander(f"👤 **{exec_name}** — проектов: {len(user_rows)} | **К выплате: {payout:,.0f} ₽**".replace(",", " ")):
                             st.markdown("**Детализация расчета:**")
                             for idx, row in user_rows.iterrows():
                                 details = str(row["Детали и KPI"])
-                                p_sum = calculate_project_payment(row["Проект"], str(row["Роли"]), details)
+                                extra_str = str(row.get("Разовые задачи", ""))
+                                p_sum = calculate_project_payment(row["Проект"], str(row["Роли"]), details, extra_str)
                                 
                                 if "ПОДМЕНА:" in details:
                                     st.warning(f"⚠️ **{row['Проект']}** | Роли: *{row['Роли']}* | {details}")
                                 else:
                                     st.write(f"🔹 **{row['Проект']}** | Роли: *{row['Роли']}* | {details} ➔ **{p_sum:,.0f} ₽**".replace(",", " "))
                                 
-                                if row.get("Разовые задачи") and str(row["Разовые задачи"]).strip():
-                                    st.info(f"💡 Иные задачи (требуют согласования): {row['Разовые задачи']}")
+                                if extra_str and extra_str.strip():
+                                    st.warning(f"⚡ **НА СОГЛАСОВАНИИ (Иные задачи):** {extra_str}")
                 else:
                     st.info("В таблице пока нет записей.")
             else:
