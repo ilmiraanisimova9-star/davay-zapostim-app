@@ -356,7 +356,7 @@ elif page == "🔒 Дашборд руководителя":
     
     password = st.text_input("Введите пароль для доступа к финансовому отчету:", type="password")
     
-    if password == "1234":
+    if password == "MyAgency2026!":
         st.success("Доступ разрешен!")
         st.markdown("---")
         
