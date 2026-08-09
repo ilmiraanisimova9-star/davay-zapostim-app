@@ -9,8 +9,8 @@ st.set_page_config(
     layout="centered"
 )
 
-# Прямая ссылка на ваш рабочий веб-скрипт Google Таблицы
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxndzx87NPkj7mhRKeWL7Q_3syQIIIIRKUVxEpbE3H0Vb0ZYz2eZOJwdha3I327odQxl/exec"
+# Актуальный WEBHOOK URL из Версии 3
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbx-uDOFOarTm9v64ImI8c1aO9wWavHJbQjuBbW14mXpwMwh-f97nONJwNP1jcgh1BVN/exec"
 
 # Фирменный дизайн ДАВАЙ ЗАПОСТИМ!
 brand_css = """
@@ -61,7 +61,7 @@ brand_css = """
         color: #1A1A1A !important;
     }
 
-    /* Перекрашиваем красные теги в сиреневый (#B795E8) */
+    /* Сиреневые плашки выбранных элементов (#B795E8) */
     span[data-baseweb="tag"],
     div[data-baseweb="tag"],
     [data-baseweb="tag"] {
@@ -224,7 +224,6 @@ if st.button("🚀 Отправить отчет"):
             })
         
         try:
-            # Отправка данных на скрипт Google Таблицы
             res = requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
             st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
             st.balloons()
