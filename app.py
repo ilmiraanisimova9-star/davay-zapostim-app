@@ -148,9 +148,24 @@ projects = [
 ]
 
 roles = [
-    "Проектный менеджер", "Контентмейкер", "Видеограф", 
-    "Дизайнер", "Монтажер", "Региональная управляющая",
+    "Проектный менеджер", 
+    "Контентмейкер", 
+    "Видеограф", 
+    "Дизайнер", 
+    "Монтажер", 
+    "Региональная управляющая",
+    "Ведение картографических сервисов",
+    "Выставление счёта за ОРД",
     "Частичная подмена / Дежурство"
+]
+
+subcontractor_roles = [
+    "Контентмейкер", 
+    "Дизайнер", 
+    "Монтажер", 
+    "Видеограф", 
+    "Ведение картографических сервисов",
+    "Выставление счёта за ОРД"
 ]
 
 def calculate_project_payment(proj_name, roles_str, details_str):
@@ -172,6 +187,10 @@ def calculate_project_payment(proj_name, roles_str, details_str):
             total += 5000
         elif role == "Региональная управляющая":
             total += 10000
+        elif role == "Ведение картографических сервисов":
+            total += 2500
+        elif role == "Выставление счёта за ОРД":
+            total += 180
 
     if "KPI: 1 цель" in details_str:
         total += 500
@@ -180,8 +199,6 @@ def calculate_project_payment(proj_name, roles_str, details_str):
     elif "KPI: 3 цели" in details_str:
         total += 1500
 
-    if "Карты (+2500₽)" in details_str:
-        total += 2500
     if "Комьюнити (+1500₽)" in details_str:
         total += 1500
 
@@ -226,25 +243,23 @@ if page == "📝 Сдача отчетов":
                 if repl_comment:
                     extra_info_list.append(f"ПОДМЕНА: {repl_comment}")
 
-            # Специальный блок для Проектных менеджеров: сверка состава команды
+            # Расширенный блок для Проектных менеджеров: гибкий выбор подрядчиков
             if "Проектный менеджер" in proj_roles:
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
-                cm_team = st.multiselect(f"Контентмейкер(ы) на «{proj}»", [m for m in team_members if "➕" not in m], key=f"cm_{proj}")
-                ds_team = st.multiselect(f"Дизайнер(ы) / Монтажер(ы) на «{proj}»", [m for m in team_members if "➕" not in m], key=f"ds_{proj}")
+                chosen_sub_roles = st.multiselect(f"Какие роли подрядчиков были на проекте «{proj}»?", subcontractor_roles, key=f"sub_roles_{proj}")
                 
                 team_declared = []
-                if cm_team: team_declared.append(f"Контент: {', '.join(cm_team)}")
-                if ds_team: team_declared.append(f"Дизайн/Монтаж: {', '.join(ds_team)}")
+                for s_role in chosen_sub_roles:
+                    people = st.multiselect(f"Исполнители на роли «{s_role}» [{proj}]", [m for m in team_members if "➕" not in m], key=f"people_{s_role}_{proj}")
+                    if people:
+                        team_declared.append(f"{s_role}: {', '.join(people)}")
+                
                 if team_declared:
                     extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
 
                 kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (500₽)", "2 цели (1000₽)", "3 цели (1500₽)"], key=f"kpi_{proj}")
                 extra_info_list.append(f"KPI: {kpi}")
                 
-                if proj in ["Стоматология для детей", "Рыболов Сервис", "МЦ \"Да Винчи\""]:
-                    if st.checkbox(f"Ведение картографических сервисов (+2500₽ к премии) [{proj}]", key=f"cards_{proj}"):
-                        extra_info_list.append("Карты (+2500₽)")
-                    
                 if proj == "ООО ИНТИНСКОЕ":
                     if st.checkbox(f"Комьюнити-менеджмент (+1500₽) [{proj}]", key=f"comm_{proj}"):
                         extra_info_list.append("Комьюнити (+1500₽)")
@@ -346,7 +361,6 @@ elif page == "🔒 Дашборд руководителя":
                     st.markdown("---")
                     st.subheader("🎯 Статус автосверки (ПМ vs Подрядчики):")
                     
-                    # Логика поиска заявленных команд
                     pm_rows = filtered_df[filtered_df["Роли"].str.contains("Проектный менеджер", na=False)]
                     if not pm_rows.empty:
                         for idx, pm_row in pm_rows.iterrows():
