@@ -1,7 +1,7 @@
 import streamlit as st
-import pandas as pd
+import requests
+import json
 from datetime import datetime
-from streamlit_gsheets import GSheetsConnection
 
 st.set_page_config(
     page_title="ДАВАЙ ЗАПОСТИМ! — Сдача отчетов", 
@@ -9,7 +9,10 @@ st.set_page_config(
     layout="centered"
 )
 
-# Перекрытие CSS-стилей и шрифтов
+# Прямая ссылка на ваш рабочий веб-скрипт Google Таблицы
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxndzx87NPkj7mhRKeWL7Q_3syQIIIIRKUVxEpbE3H0Vb0ZYz2eZOJwdha3I327odQxl/exec"
+
+# Фирменный дизайн ДАВАЙ ЗАПОСТИМ!
 brand_css = """
 <style>
     @import url('https://fonts.cdnfonts.com/css/gotham-pro');
@@ -35,6 +38,7 @@ brand_css = """
         font-weight: 700 !important;
     }
 
+    /* Кнопка отправки */
     div.stButton > button {
         background-color: #D8FD81 !important;
         color: #1A1A1A !important;
@@ -57,17 +61,20 @@ brand_css = """
         color: #1A1A1A !important;
     }
 
-    /* Полный перекрас КРАСНЫХ плашек в фиолетовый (#B795E8) */
+    /* Перекрашиваем красные теги в сиреневый (#B795E8) */
     span[data-baseweb="tag"],
     div[data-baseweb="tag"],
-    [data-baseweb="tag"],
-    span[data-baseweb="tag"] *,
-    div[data-baseweb="tag"] * {
+    [data-baseweb="tag"] {
         background-color: #B795E8 !important;
         color: #1A1A1A !important;
-        fill: #1A1A1A !important;
         font-weight: 700 !important;
         border-radius: 6px !important;
+    }
+
+    span[data-baseweb="tag"] *,
+    div[data-baseweb="tag"] * {
+        color: #1A1A1A !important;
+        fill: #1A1A1A !important;
     }
 
     .stSelectbox div[data-baseweb="select"], 
@@ -94,8 +101,6 @@ st.markdown(brand_css, unsafe_allow_html=True)
 
 st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчетов")
 st.markdown("Заполните форму отчета за прошедший месяц. Вы можете выбрать **несколько проектов и несколько ролей** одновременно.")
-
-conn = st.connection("gsheets", type=GSheetsConnection)
 
 team_members = [
     "Анастасия Мальцева",
@@ -204,30 +209,25 @@ if st.button("🚀 Отправить отчет"):
     elif empty_roles:
         st.error(f"Ошибка: вы не выбрали роли для следующих проектов: {', '.join(empty_roles)}")
     else:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        payload = []
+        
+        for proj, data in task_data.items():
+            payload.append({
+                "Дата и время": now_str,
+                "Исполнитель": executor,
+                "Период": period,
+                "Проект": proj,
+                "Роли": data["roles"],
+                "Детали и KPI": data["extra"],
+                "Разовые задачи": extra_task_desc if proj == selected_projects[0] else ""
+            })
+        
         try:
-            # Чтение таблицы без явной указания кириллического названия листа
-            existing_data = conn.read(usecols=[0,1,2,3,4,5,6], ttl=0)
-            
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            new_rows = []
-            
-            for proj, data in task_data.items():
-                new_rows.append({
-                    "Дата и время": now_str,
-                    "Исполнитель": executor,
-                    "Период": period,
-                    "Проект": proj,
-                    "Роли": data["roles"],
-                    "Детали и KPI": data["extra"],
-                    "Разовые задачи": extra_task_desc if proj == selected_projects[0] else ""
-                })
-            
-            updated_df = pd.concat([existing_data, pd.DataFrame(new_rows)], ignore_index=True)
-            conn.update(data=updated_df)
-            
+            # Отправка данных на скрипт Google Таблицы
+            res = requests.post(WEBHOOK_URL, data=json.dumps(payload), headers={"Content-Type": "application/json"})
             st.success(f"✅ Отчет от **{executor}** успешно зафиксирован в Google Таблице!")
             st.balloons()
-            st.toast("Данные успешно записаны!", icon="🎉")
-            
+            st.toast("Данные записаны!", icon="🎉")
         except Exception as e:
-            st.error(f" Ошибка сохранения: {e}")
+            st.error(f"Ошибка отправки: {e}")
