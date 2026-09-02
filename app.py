@@ -87,26 +87,22 @@ def parse_extra_tasks_amount(extra_tasks_str):
 def calculate_project_payment(proj_name, roles_str, details_str, extra_tasks_str=""):
     total = 0
     
-    # 1. Поиск точных сумм, вписанных руками через новые поля
-    role_matches = re.findall(r'РОЛЬ \[.*?\]: Период - .*?, Сумма - (\d+)\s*₽', details_str)
+    # Ищем суммы, вписанные руками (универсальный поиск для старых и новых отчетов)
+    role_matches = re.findall(r'РОЛЬ \[.*?\]: .*?Сумма - (\d+)\s*₽', details_str)
     if role_matches:
         for match in role_matches:
             total += int(match)
     else:
-        # Резервный старый алгоритм для старых отчетов в базе
         roles_list = [r.strip() for r in roles_str.split(",") if r.strip()]
         for role in roles_list:
             if role in ROLE_BASE_RATES:
                 total += ROLE_BASE_RATES[role]
 
-    # 2. Мотивация ПМ
     if "KPI: 1 цель" in details_str: total += 500
     elif "KPI: 2 цели" in details_str: total += 1000
     elif "KPI: 3 цели" in details_str: total += 1500
 
-    # 3. Иные задачи
     total += parse_extra_tasks_amount(extra_tasks_str)
-    
     return total
 
 # ----------------------------------------------------
@@ -136,7 +132,6 @@ if page == "📝 Сдача отчетов":
         for proj in selected_projects:
             st.markdown(f"#### Проект: **{proj}**")
             
-            # Контент-пакет (сдельная оплата)
             is_content_package = st.checkbox(f"📦 Контент-пакет / Сдельная оплата [{proj}]", key=f"cp_{proj}")
             total_package = 0
             if is_content_package:
@@ -152,25 +147,30 @@ if page == "📝 Сдача отчетов":
             if is_content_package:
                 extra_info_list.append(f"КОНТЕНТ-ПАКЕТ: {units_count} шт. по {unit_price} ₽ (Итого: {total_package} ₽)")
 
-            # Детализация своей ставки с учетом периода
             if proj_roles:
-                st.markdown("**Уточните период и сумму за ваши роли:**")
+                st.markdown("**Уточните данные и сумму за ваши роли:**")
                 for role in proj_roles:
                     c1, c2 = st.columns(2)
                     with c1:
-                        period_val = st.text_input(f"Период ({role})", value="Полный месяц", key=f"per_{role}_{proj}")
+                        if is_content_package:
+                            period_val = st.text_input(f"Объем работ ({role})", value="", placeholder="Например: 10 постов", key=f"per_{role}_{proj}")
+                        else:
+                            period_val = st.text_input(f"Период ({role})", value="Полный месяц", key=f"per_{role}_{proj}")
                     with c2:
                         def_amt = ROLE_BASE_RATES.get(role, 0)
                         if is_content_package and role == "Проектный менеджер":
                             def_amt = total_package
                         amt_val = st.number_input(f"Сумма к выплате ₽ ({role})", value=int(def_amt), key=f"amt_{role}_{proj}")
-                    extra_info_list.append(f"РОЛЬ [{role}]: Период - {period_val}, Сумма - {amt_val} ₽")
+                    
+                    safe_period = period_val if period_val else "Не указан"
+                    extra_info_list.append(f"РОЛЬ [{role}]: Данные - {safe_period}, Сумма - {amt_val} ₽")
 
-            # Блок ПМ: KPI и состав команды
             if "Проектный менеджер" in proj_roles:
-                kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (+500₽)", "2 цели (+1000₽)", "3 цели (+1500₽)"], key=f"kpi_{proj}")
-                kpi_comment = st.text_input(f"Комментарий к KPI / Оценка ({proj})", key=f"kpicom_{proj}")
-                extra_info_list.append(f"KPI: {kpi}. Коммент: {kpi_comment}")
+                # KPI показываем ТОЛЬКО если это не контент-пакет
+                if not is_content_package:
+                    kpi = st.selectbox(f"Достигнуто KPI целей ({proj})", ["0 целей (0₽)", "1 цель (+500₽)", "2 цели (+1000₽)", "3 цели (+1500₽)"], key=f"kpi_{proj}")
+                    kpi_comment = st.text_input(f"Комментарий к KPI / Оценка ({proj})", key=f"kpicom_{proj}")
+                    extra_info_list.append(f"KPI: {kpi}. Коммент: {kpi_comment}")
 
                 st.markdown("---")
                 st.markdown("👥 **Укажите подрядчиков, работавших на проекте (для сверки):**")
@@ -193,13 +193,18 @@ if page == "📝 Сдача отчетов":
                         
                         colA, colB, colC = st.columns([2, 2, 1])
                         with colA: st.markdown(f"<br>👤 **{p_name}**", unsafe_allow_html=True)
-                        with colB: p_period = st.text_input("Период", value="Полный месяц", key=f"pper_{p}_{s_role}_{proj}")
+                        with colB: 
+                            if is_content_package:
+                                p_period = st.text_input("Объем работ", value="", placeholder="Например: 5 рилс", key=f"pper_{p}_{s_role}_{proj}")
+                            else:
+                                p_period = st.text_input("Период", value="Полный месяц", key=f"pper_{p}_{s_role}_{proj}")
                         with colC: 
                             def_val = role_limit // len(people) if len(people) > 0 else role_limit
                             p_amt = st.number_input("Сумма ₽", value=int(def_val), key=f"pamt_{p}_{s_role}_{proj}")
                             current_sum += p_amt
                         
-                        people_details.append(f"{p_name} ({p_period}, {p_amt} ₽)")
+                        safe_p_period = p_period if p_period else "Не указан"
+                        people_details.append(f"{p_name} ({safe_p_period}, {p_amt} ₽)")
                     
                     if current_sum > role_limit and not is_content_package and len(people) > 0:
                         st.error(f"⚠️ Перерасход ФОТ! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
@@ -261,7 +266,7 @@ elif page == "🔒 Дашборд руководителя":
     st.title("🔒 Дашборд руководителя")
     password = st.text_input("Введите пароль:", type="password")
     
-    if password == "оплаты подрядчиков!":
+    if password == "MyAgency2026!":
         try:
             res = requests.get(WEBHOOK_URL)
             if res.status_code == 200:
