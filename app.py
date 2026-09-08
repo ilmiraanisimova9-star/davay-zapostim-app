@@ -221,7 +221,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
             if not is_content_package:
                 st.markdown("**🎯 Выполнение целей проекта:**")
-                kpi_col1, kpi_col2 = st.columns(2)
+                kpi_col1, kpi_col2 = st.columns([3, 2])
                 with kpi_col1:
                     goals_desc = st.text_input(
                         "Какие цели были выполнены?", 
@@ -230,7 +230,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     )
                 with kpi_col2:
                     goals_bonus = st.number_input(
-                        "Твоя оценка вклада в цели (до 1 500 ₽)", 
+                        "Во сколько ты оцениваешь свой вклад в достижение целей? (до 1 500 ₽)", 
                         min_value=0, 
                         max_value=1500,
                         value=None, 
