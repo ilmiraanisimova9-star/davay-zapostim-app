@@ -268,6 +268,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     goals_bonus = st.number_input(
                         "Оцени свой вклад в цели (до 1 500 ₽)", 
                         min_value=0, 
+                        max_value=1500,
                         value=None, 
                         step=500, 
                         placeholder="0",
@@ -501,6 +502,7 @@ elif page == "🔒 Дашборд руководителя":
                     project_details_map = {}
                     contractor_payouts = {}
                     extra_tasks_records = []
+                    seen_extras = set()
                     
                     grand_total_projects = 0
                     grand_total_extras = 0
@@ -522,18 +524,25 @@ elif page == "🔒 Дашборд руководителя":
                         grand_total_saved += sav_info["saved_agency"]
                         
                         if p_manager not in contractor_payouts:
-                            contractor_payouts[p_manager] = {"projects": [], "extras": 0}
+                            contractor_payouts[p_manager] = {"projects": [], "extras": 0, "extra_items": []}
+                        
+                        pm_desc_parts = [f"База: {pm_info['base']} ₽"]
+                        if pm_info['goals_bonus'] > 0:
+                            pm_desc_parts.append(f"Цели: +{pm_info['goals_bonus']} ₽")
+                        if pm_info['savings_bonus'] > 0:
+                            pm_desc_parts.append(f"Бонус за экономию: +{pm_info['savings_bonus']} ₽")
+                            
                         contractor_payouts[p_manager]["projects"].append({
                             "project": p_name,
                             "role": "Проектный менеджер",
-                            "desc": f"База {pm_info['base']} ₽ + Цели {pm_info['goals_bonus']} ₽ + Бонус {pm_info['savings_bonus']} ₽",
+                            "desc": ", ".join(pm_desc_parts),
                             "sum": pm_info["total"]
                         })
                         
                         for s in subs:
                             c_name = s["name"]
                             if c_name not in contractor_payouts:
-                                contractor_payouts[c_name] = {"projects": [], "extras": 0}
+                                contractor_payouts[c_name] = {"projects": [], "extras": 0, "extra_items": []}
                             contractor_payouts[c_name]["projects"].append({
                                 "project": p_name,
                                 "role": s["role"],
@@ -543,13 +552,23 @@ elif page == "🔒 Дашборд руководителя":
                         
                         extra_sum = parse_extra_tasks_amount(p_extra)
                         if extra_sum > 0:
-                            grand_total_extras += extra_sum
-                            contractor_payouts[p_manager]["extras"] += extra_sum
-                            extra_tasks_records.append({
-                                "Менеджер": p_manager,
-                                "Задачи": p_extra,
-                                "Сумма": f"{extra_sum:,.0f} ₽"
-                            })
+                            clean_task_name = re.sub(r'\s*—\s*\d+\s*₽?', '', p_extra).strip()
+                            clean_task_name = clean_task_name.lstrip("•").strip()
+                            
+                            extra_key = (p_manager, clean_task_name, extra_sum)
+                            if extra_key not in seen_extras:
+                                seen_extras.add(extra_key)
+                                grand_total_extras += extra_sum
+                                contractor_payouts[p_manager]["extras"] += extra_sum
+                                contractor_payouts[p_manager]["extra_items"].append({
+                                    "desc": clean_task_name,
+                                    "sum": extra_sum
+                                })
+                                extra_tasks_records.append({
+                                    "Менеджер": p_manager,
+                                    "Задача": clean_task_name,
+                                    "Сумма": f"{extra_sum:,.0f} ₽".replace(",", " ")
+                                })
                         
                         project_rows.append({
                             "Проект": p_name,
@@ -635,17 +654,35 @@ elif page == "🔒 Дашборд руководителя":
                     df_contractors = pd.DataFrame(summary_contractors).sort_values(by="raw_total", ascending=False)
                     st.dataframe(df_contractors.drop(columns=["raw_total", "raw_data"]), use_container_width=True, hide_index=True)
 
-                    with st.expander("💳 Быстрая проверка перед выплатой по конкретному специалисту"):
+                    with st.expander("💳 Расчетный лист по специалисту перед переводом", expanded=True):
                         c_names_list = [row["Специалист"] for row in summary_contractors]
-                        chosen_c = st.selectbox("Выберите специалиста:", c_names_list)
+                        chosen_c = st.selectbox("Выберите специалиста для проверки:", c_names_list)
                         if chosen_c:
                             c_record = next(item for item in summary_contractors if item["Специалист"] == chosen_c)
-                            st.markdown(f"### Итого к переводу: **{c_record['Итого к выплате']}**")
-                            st.markdown("**Начисления по проектам:**")
-                            for p_entry in c_record["raw_data"]["projects"]:
-                                st.markdown(f"• **{p_entry['project']}** — {p_entry['role']}: **{p_entry['sum']} ₽** ({p_entry['desc']})")
-                            if c_record["raw_data"]["extras"] > 0:
-                                st.markdown(f"• **Разовые поручения / Иные задачи:** **{c_record['raw_data']['extras']} ₽**")
+                            c_data = c_record["raw_data"]
+                            
+                            st.markdown(f"### Итого к выплате **{chosen_c}**: <span style='color: #D8FD81;'>{c_record['Итого к выплате']}</span>", unsafe_allow_html=True)
+                            
+                            sheet_rows = []
+                            for p_entry in c_data["projects"]:
+                                sheet_rows.append({
+                                    "Проект / Источник": p_entry["project"],
+                                    "Роль": p_entry["role"],
+                                    "Примечание / Детали": p_entry["desc"],
+                                    "Сумма к выплате": f"{p_entry['sum']:,.0f} ₽".replace(",", " ")
+                                })
+                            
+                            if c_data["extra_items"]:
+                                for ex_item in c_data["extra_items"]:
+                                    sheet_rows.append({
+                                        "Проект / Источник": "⚡ Разовые поручения",
+                                        "Роль": "Иные задачи",
+                                        "Примечание / Детали": ex_item["desc"],
+                                        "Сумма к выплате": f"{ex_item['sum']:,.0f} ₽".replace(",", " ")
+                                    })
+                            
+                            df_sheet = pd.DataFrame(sheet_rows)
+                            st.dataframe(df_sheet, use_container_width=True, hide_index=True)
 
         except Exception as e: st.error(f"Ошибка загрузки: {e}")
     elif password != "": st.error("Неверный пароль.")
