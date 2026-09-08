@@ -29,8 +29,23 @@ brand_css = """
     h2, h3, h4 { color: #B795E8 !important; font-weight: 700 !important; }
     label, p, .stMarkdown { color: #F7F7F7 !important; font-size: 15px !important; }
     label p { color: #F7F7F7 !important; font-weight: 600 !important; }
+    
+    /* Контрастные и видимые подсказки (placeholders) */
+    ::placeholder {
+        color: #A6A6A6 !important;
+        opacity: 1 !important;
+    }
+    ::-webkit-input-placeholder {
+        color: #A6A6A6 !important;
+        opacity: 1 !important;
+    }
+    :-ms-input-placeholder {
+        color: #A6A6A6 !important;
+        opacity: 1 !important;
+    }
+
     .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"], .stTextInput input, .stTextArea textarea, .stNumberInput input {
-        background-color: #262626 !important; border: 1px solid #404040 !important; color: #FFFFFF !important; border-radius: 10px !important;
+        background-color: #262626 !important; border: 1px solid #4D4D4D !important; color: #FFFFFF !important; border-radius: 10px !important;
     }
     span[data-baseweb="tag"], div[data-baseweb="tag"] { background-color: #B795E8 !important; color: #1A1A1A !important; font-weight: 700 !important; border-radius: 6px !important; }
     span[data-baseweb="tag"] * { color: #1A1A1A !important; fill: #1A1A1A !important; }
@@ -136,7 +151,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     st.markdown("---")
     st.subheader("📋 Проекты под управлением")
 
-    selected_projects = st.multiselect("Выберите проекты, которые вы вели в этом месяце", projects)
+    selected_projects = st.multiselect("Выберите проекты, которые вы вели в этом месяце", projects, placeholder="Выберите проекты из списка...")
     task_data = {}
 
     if selected_projects:
@@ -150,28 +165,33 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             st.markdown("**Ваша ставка за проект (Проектный менеджер):**")
             c1, c2 = st.columns(2)
             with c1:
-                pm_period = st.text_input("Период / объем работ ПМ", value="" if is_content_package else "Полный месяц", placeholder="Например: 10 постов или с 1 по 15 число", key=f"pm_per_{proj}")
+                pm_period = st.text_input(
+                    "Период / объем (если не полный месяц)", 
+                    value="", 
+                    placeholder="Например: 01.07–15.07 или 50%", 
+                    key=f"pm_per_{proj}"
+                )
             with c2:
                 def_pm_amt = 0 if is_content_package else 8500
                 pm_amt = st.number_input("Сумма к выплате ПМ (₽)", value=int(def_pm_amt), key=f"pm_amt_{proj}")
             
-            safe_pm_per = pm_period if pm_period else "Полный объем"
+            safe_pm_per = pm_period.strip() if pm_period.strip() else "Полный месяц"
             extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {pm_amt} ₽")
 
             if not is_content_package:
                 kpi = st.selectbox("Достигнуто KPI целей", ["0 целей (0₽)", "1 цель (+500₽)", "2 цели (+1000₽)", "3 цели (+1500₽)"], key=f"kpi_{proj}")
-                kpi_comment = st.text_input("Комментарий к KPI / Оценка", key=f"kpicom_{proj}")
+                kpi_comment = st.text_input("Комментарий к KPI / Оценка", placeholder="Например: цели выполнены досрочно", key=f"kpicom_{proj}")
                 extra_info_list.append(f"KPI: {kpi}. Коммент: {kpi_comment}")
 
             # Подрядчики проекта
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
-            chosen_sub_roles = st.multiselect("Какие роли подрядчиков были на проекте?", subcontractor_roles, key=f"sub_roles_{proj}")
+            chosen_sub_roles = st.multiselect("Какие роли подрядчиков были на проекте?", subcontractor_roles, placeholder="Выберите роли из списка...", key=f"sub_roles_{proj}")
             
             team_declared = []
             for s_role in chosen_sub_roles:
                 sub_list = [m for m in team_members if "➕" not in m] + ["➕ Ввести новое имя"]
-                people = st.multiselect(f"Исполнители на роли «{s_role}»", sub_list, key=f"people_{s_role}_{proj}")
+                people = st.multiselect(f"Исполнители на роли «{s_role}»", sub_list, placeholder="Выберите исполнителей...", key=f"people_{s_role}_{proj}")
                 
                 role_limit = ROLE_BASE_RATES.get(s_role, 0)
                 current_sum = 0
@@ -186,13 +206,18 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     colA, colB, colC = st.columns([2, 2, 1])
                     with colA: st.markdown(f"<br>👤 **{p_name}**", unsafe_allow_html=True)
                     with colB: 
-                        p_period = st.text_input("Период / объем", value="" if is_content_package else "Полный месяц", placeholder="Например: 5 клипов", key=f"pper_{p}_{s_role}_{proj}")
+                        p_period = st.text_input(
+                            "Период / объем", 
+                            value="", 
+                            placeholder="Например: 01.07–15.07 или 5 клипов", 
+                            key=f"pper_{p}_{s_role}_{proj}"
+                        )
                     with colC: 
                         def_val = role_limit // len(people) if len(people) > 0 and not is_content_package else 0
                         p_amt = st.number_input("Сумма ₽", value=int(def_val), key=f"pamt_{p}_{s_role}_{proj}")
                         current_sum += p_amt
                     
-                    safe_p_period = p_period if p_period else "Не указан"
+                    safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
                     people_details.append(f"{p_name} ({safe_p_period}, {p_amt} ₽)")
                 
                 if current_sum > role_limit and not is_content_package and len(people) > 0:
@@ -218,8 +243,8 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         tasks_list = []
         for i in range(int(task_count)):
             col_ex1, col_ex2 = st.columns([3, 1])
-            with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", key=f"task_txt_{i}")
-            with col_ex2: task_price = st.text_input(f"Стоимость (₽)", key=f"task_prc_{i}")
+            with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука", key=f"task_txt_{i}")
+            with col_ex2: task_price = st.text_input(f"Стоимость (₽)", placeholder="3000", key=f"task_prc_{i}")
             if task_text:
                 price_str = f" — {task_price}₽" if task_price.strip() else " — цена не указана"
                 tasks_list.append(f"• {task_text}{price_str}")
@@ -268,7 +293,6 @@ elif page == "🔒 Дашборд руководителя":
                     
                     filtered_df = df[df["Период"] == selected_period]
                     
-                    # Разбор аналитических структур
                     project_fots = []
                     contractor_payouts = {}
                     grand_total_fot = 0
@@ -287,7 +311,6 @@ elif page == "🔒 Дашборд руководителя":
                         project_total = pm_sum + subs_sum + extra_sum
                         grand_total_fot += project_total
                         
-                        # Добавляем ПМ в выплаты
                         if p_manager not in contractor_payouts:
                             contractor_payouts[p_manager] = []
                         contractor_payouts[p_manager].append({
@@ -297,7 +320,6 @@ elif page == "🔒 Дашборд руководителя":
                             "sum": pm_sum + extra_sum
                         })
                         
-                        # Добавляем подрядчиков в выплаты
                         for s in subs:
                             c_name = s["name"]
                             if c_name not in contractor_payouts:
@@ -309,7 +331,6 @@ elif page == "🔒 Дашборд руководителя":
                                 "sum": s["sum"]
                             })
                         
-                        # Формируем строку проекта
                         subs_summary_list = [f"{s['role']}: {s['name']} ({s['sum']} ₽)" for s in subs]
                         project_fots.append({
                             "Проект": p_name,
