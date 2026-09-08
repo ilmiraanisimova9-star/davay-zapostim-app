@@ -292,7 +292,7 @@ elif page == "🔒 Дашборд руководителя":
     st.title("🔒 Дашборд руководителя")
     password = st.text_input("Введите пароль:", type="password")
     
-    if password == "оплата подрядчиков2026!":
+    if password == "оплата подрядчиков26!":
         try:
             res = requests.get(WEBHOOK_URL)
             if res.status_code == 200:
