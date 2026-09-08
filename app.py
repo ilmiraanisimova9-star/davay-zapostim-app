@@ -94,10 +94,6 @@ def parse_pm_payment(details_str):
     kpi_bonus_match = re.search(r'ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ:\s*(\d+)\s*₽', details_str)
     if kpi_bonus_match:
         amt += int(kpi_bonus_match.group(1))
-    else:
-        if "KPI: 1 цель" in details_str: amt += 500
-        elif "KPI: 2 цели" in details_str: amt += 1000
-        elif "KPI: 3 цели" in details_str: amt += 1500
         
     sav_bonus_match = re.search(r'БОНУС ПМ:\s*(\d+)\s*₽', details_str)
     if sav_bonus_match:
@@ -176,7 +172,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
             if not is_content_package:
                 st.markdown("**🎯 Выполнение целей проекта:**")
-                kpi_col1, kpi_col2 = st.columns([3, 2])
+                kpi_col1, kpi_col2 = st.columns(2)
                 with kpi_col1:
                     goals_desc = st.text_input(
                         "Какие цели были выполнены?", 
@@ -185,7 +181,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     )
                 with kpi_col2:
                     goals_bonus = st.number_input(
-                        "Во сколько ты оцениваешь свой вклад в достижение целей? (₽)", 
+                        "Твоя оценка вклада в цели (₽)", 
                         min_value=0, 
                         value=0, 
                         step=500, 
@@ -196,25 +192,34 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {goals_bonus} ₽")
 
             st.markdown("**💡 Оптимизация бюджета:**")
-            sav_col1, sav_col2 = st.columns([3, 2])
+            sav_col1, sav_col2, sav_col3 = st.columns([3, 2, 2])
             with sav_col1:
                 savings_desc = st.text_input(
-                    "За счет чего удалось сэкономить бюджет проекта?", 
-                    placeholder="Например: договорилась с дизайнером на пакетную скидку", 
+                    "За счет чего удалось сэкономить бюджет?", 
+                    placeholder="Например: договорилась на пакетную скидку", 
                     key=f"sav_desc_{proj}"
                 )
             with sav_col2:
-                savings_bonus = st.number_input(
-                    "Бонус менеджера (50% от сэкономленного, ₽)", 
+                saved_total = st.number_input(
+                    "Сэкономлено агентству (₽)", 
                     min_value=0, 
                     value=0, 
                     step=500, 
+                    key=f"saved_tot_{proj}"
+                )
+            with sav_col3:
+                auto_bonus = saved_total // 2
+                savings_bonus = st.number_input(
+                    "Бонус менеджера (50%, ₽)", 
+                    min_value=0, 
+                    value=int(auto_bonus), 
+                    step=250, 
                     key=f"sav_bonus_{proj}"
                 )
             
             if savings_bonus > 0:
                 safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
-                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc}; БОНУС ПМ: {savings_bonus} ₽")
+                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {saved_total} ₽); БОНУС ПМ: {savings_bonus} ₽")
 
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
