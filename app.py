@@ -91,15 +91,46 @@ def parse_pm_payment(details_str):
     pm_match = re.search(r'РОЛЬ \[Проектный менеджер\]: .*?Сумма - (\d+)\s*₽', details_str)
     amt = int(pm_match.group(1)) if pm_match else 8500
     
-    kpi_bonus_match = re.search(r'ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ:\s*(\d+)\s*₽', details_str)
+    kpi_bonus_match = re.search(r'(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):\s*(\d+)\s*₽', details_str)
     if kpi_bonus_match:
         amt += int(kpi_bonus_match.group(1))
+    else:
+        if "KPI: 1 цель" in details_str: amt += 500
+        elif "KPI: 2 цели" in details_str: amt += 1000
+        elif "KPI: 3 цели" in details_str: amt += 1500
         
     sav_bonus_match = re.search(r'БОНУС ПМ:\s*(\d+)\s*₽', details_str)
     if sav_bonus_match:
         amt += int(sav_bonus_match.group(1))
         
     return amt
+
+def parse_savings_data(details_str):
+    saved_agency = 0
+    pm_bonus = 0
+    desc_list = []
+    
+    sav_match = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:\s*(\d+)\s*₽\);\s*БОНУС ПМ:\s*(\d+)\s*₽', details_str)
+    if sav_match:
+        desc_list.append(f"💡 Экономия: {sav_match.group(1)} (Сэкономлено: {sav_match.group(2)} ₽ ➔ Бонус ПМ: {sav_match.group(3)} ₽)")
+        saved_agency = int(sav_match.group(2))
+        pm_bonus += int(sav_match.group(3))
+    else:
+        old_sav_match = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?);\s*БОНУС ПМ:\s*(\d+)\s*₽', details_str)
+        if old_sav_match:
+            desc_list.append(f"💡 Экономия: {old_sav_match.group(1)} (Бонус ПМ: {old_sav_match.group(2)} ₽)")
+            pm_bonus += int(old_sav_match.group(2))
+            
+    goals_match = re.search(r'ЦЕЛИ:\s*(.*?);\s*(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):\s*(\d+)\s*₽', details_str)
+    if goals_match:
+        if int(goals_match.group(2)) > 0:
+            desc_list.append(f"🎯 Цели: {goals_match.group(1)} (+{goals_match.group(2)} ₽)")
+            
+    return {
+        "saved_agency": saved_agency,
+        "pm_bonus": pm_bonus,
+        "justification": "; \n".join(desc_list) if desc_list else "—"
+    }
 
 def parse_subcontractors_from_details(details_str):
     sub_data = []
@@ -300,7 +331,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     
                     safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
                     safe_amt = p_amt if p_amt is not None else 0
-                    people_details.append(f"{p} ({safe_p_period}, {safe_amt} ₽)")
+                    people_details.append(f"{p} ({safe_p_period}, {p_amt} ₽)")
                 
                 if current_sum > role_limit and not is_content_package and len(active_people) > 0:
                     st.error(f"⚠️ Превышение лимита бюджета! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
@@ -378,6 +409,7 @@ elif page == "🔒 Дашборд руководителя":
                     project_budgets = []
                     contractor_payouts = {}
                     grand_total_budget = 0
+                    grand_total_saved = 0
                     
                     for idx, row in filtered_df.iterrows():
                         p_name = row["Проект"]
@@ -388,7 +420,9 @@ elif page == "🔒 Дашборд руководителя":
                         pm_sum = parse_pm_payment(p_details)
                         extra_sum = parse_extra_tasks_amount(p_extra)
                         subs = parse_subcontractors_from_details(p_details)
+                        sav_info = parse_savings_data(p_details)
                         
+                        grand_total_saved += sav_info["saved_agency"]
                         subs_sum = sum(s["sum"] for s in subs)
                         project_total = pm_sum + subs_sum + extra_sum
                         grand_total_budget += project_total
@@ -418,6 +452,7 @@ elif page == "🔒 Дашборд руководителя":
                             "Проект": p_name,
                             "Менеджер": p_manager,
                             "Выплата ПМ": f"{pm_sum:,.0f} ₽",
+                            "Обоснование бонусов и экономии": sav_info["justification"],
                             "Команда подрядчиков": ", ".join(subs_summary_list) if subs_summary_list else "Без подрядчиков",
                             "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
                             "Иные задачи": f"{extra_sum:,.0f} ₽" if extra_sum > 0 else "—",
@@ -425,15 +460,16 @@ elif page == "🔒 Дашборд руководителя":
                             "raw_total": project_total
                         })
                     
-                    col_m1, col_m2, col_m3 = st.columns(3)
+                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
                     col_m1.metric("Проектов в отчете", len(filtered_df))
                     col_m2.metric("Человек к выплате", f"{len(contractor_payouts)} чел.")
                     col_m3.metric("Общий бюджет выплат", f"{grand_total_budget:,.0f} ₽".replace(",", " "))
+                    col_m4.metric("Сэкономлено агентству", f"{grand_total_saved:,.0f} ₽".replace(",", " "))
                     
                     st.markdown("---")
                     
                     st.subheader("📊 1. Таблица по бюджетам проектов")
-                    st.markdown("Сводная смета по каждому проекту: сколько начислено менеджеру и распределено на подрядчиков.")
+                    st.markdown("Сводная смета по каждому проекту: сколько начислено менеджеру, экономия и распределение по подрядчикам.")
                     
                     df_proj = pd.DataFrame(project_budgets).drop(columns=["raw_total"])
                     st.dataframe(df_proj, use_container_width=True, hide_index=True)
