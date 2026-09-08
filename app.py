@@ -89,13 +89,20 @@ def parse_extra_tasks_amount(extra_tasks_str):
 
 def parse_pm_payment(details_str):
     pm_match = re.search(r'РОЛЬ \[Проектный менеджер\]: .*?Сумма - (\d+)\s*₽', details_str)
-    if pm_match:
-        amt = int(pm_match.group(1))
+    amt = int(pm_match.group(1)) if pm_match else 8500
+    
+    kpi_bonus_match = re.search(r'ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ:\s*(\d+)\s*₽', details_str)
+    if kpi_bonus_match:
+        amt += int(kpi_bonus_match.group(1))
     else:
-        amt = 8500
-    if "KPI: 1 цель" in details_str: amt += 500
-    elif "KPI: 2 цели" in details_str: amt += 1000
-    elif "KPI: 3 цели" in details_str: amt += 1500
+        if "KPI: 1 цель" in details_str: amt += 500
+        elif "KPI: 2 цели" in details_str: amt += 1000
+        elif "KPI: 3 цели" in details_str: amt += 1500
+        
+    sav_bonus_match = re.search(r'БОНУС ПМ:\s*(\d+)\s*₽', details_str)
+    if sav_bonus_match:
+        amt += int(sav_bonus_match.group(1))
+        
     return amt
 
 def parse_subcontractors_from_details(details_str):
@@ -168,9 +175,46 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {pm_amt} ₽")
 
             if not is_content_package:
-                kpi = st.selectbox("Достигнуто KPI целей", ["0 целей (0₽)", "1 цель (+500₽)", "2 цели (+1000₽)", "3 цели (+1500₽)"], key=f"kpi_{proj}")
-                kpi_comment = st.text_input("Комментарий к KPI / Оценка", placeholder="Например: цели выполнены досрочно", key=f"kpicom_{proj}")
-                extra_info_list.append(f"KPI: {kpi}. Коммент: {kpi_comment}")
+                st.markdown("**🎯 Выполнение целей проекта:**")
+                kpi_col1, kpi_col2 = st.columns([3, 2])
+                with kpi_col1:
+                    goals_desc = st.text_input(
+                        "Какие цели были выполнены?", 
+                        placeholder="Например: перевыполнили охваты на 25%, привлекли 40 заявок", 
+                        key=f"goals_desc_{proj}"
+                    )
+                with kpi_col2:
+                    goals_bonus = st.number_input(
+                        "Во сколько ты оцениваешь свой вклад в достижение целей? (₽)", 
+                        min_value=0, 
+                        value=0, 
+                        step=500, 
+                        key=f"goals_bonus_{proj}"
+                    )
+                
+                safe_goals_desc = goals_desc.strip() if goals_desc.strip() else "Без описания"
+                extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {goals_bonus} ₽")
+
+            st.markdown("**💡 Оптимизация бюджета:**")
+            sav_col1, sav_col2 = st.columns([3, 2])
+            with sav_col1:
+                savings_desc = st.text_input(
+                    "За счет чего удалось сэкономить бюджет проекта?", 
+                    placeholder="Например: договорилась с дизайнером на пакетную скидку", 
+                    key=f"sav_desc_{proj}"
+                )
+            with sav_col2:
+                savings_bonus = st.number_input(
+                    "Бонус менеджера (50% от сэкономленного, ₽)", 
+                    min_value=0, 
+                    value=0, 
+                    step=500, 
+                    key=f"sav_bonus_{proj}"
+                )
+            
+            if savings_bonus > 0:
+                safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
+                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc}; БОНУС ПМ: {savings_bonus} ₽")
 
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
@@ -231,7 +275,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     people_details.append(f"{p} ({safe_p_period}, {p_amt} ₽)")
                 
                 if current_sum > role_limit and not is_content_package and len(active_people) > 0:
-                    st.error(f"⚠️ Перерасход ФОТ! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
+                    st.error(f"⚠️ Превышение лимита бюджета! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
                 
                 if people_details:
                     team_declared.append(f"{s_role}: {', '.join(people_details)}")
@@ -254,7 +298,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         for i in range(int(task_count)):
             col_ex1, col_ex2 = st.columns([3, 1])
             with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука", key=f"task_txt_{i}")
-            with col_ex2: task_price = st.text_input(f"Стоимость (₽)", placeholder="100", key=f"task_prc_{i}")
+            with col_ex2: task_price = st.text_input(f"Вознаграждение (₽)", placeholder="100", key=f"task_prc_{i}")
             if task_text:
                 price_str = f" — {task_price}₽" if task_price.strip() else " — цена не указана"
                 tasks_list.append(f"• {task_text}{price_str}")
@@ -303,9 +347,9 @@ elif page == "🔒 Дашборд руководителя":
                     
                     filtered_df = df[df["Период"] == selected_period]
                     
-                    project_fots = []
+                    project_budgets = []
                     contractor_payouts = {}
-                    grand_total_fot = 0
+                    grand_total_budget = 0
                     
                     for idx, row in filtered_df.iterrows():
                         p_name = row["Проект"]
@@ -319,7 +363,7 @@ elif page == "🔒 Дашборд руководителя":
                         
                         subs_sum = sum(s["sum"] for s in subs)
                         project_total = pm_sum + subs_sum + extra_sum
-                        grand_total_fot += project_total
+                        grand_total_budget += project_total
                         
                         if p_manager not in contractor_payouts:
                             contractor_payouts[p_manager] = []
@@ -342,28 +386,28 @@ elif page == "🔒 Дашборд руководителя":
                             })
                         
                         subs_summary_list = [f"{s['role']}: {s['name']} ({s['sum']} ₽)" for s in subs]
-                        project_fots.append({
+                        project_budgets.append({
                             "Проект": p_name,
                             "Менеджер": p_manager,
-                            "ФОТ ПМ": f"{pm_sum:,.0f} ₽",
+                            "Выплата ПМ": f"{pm_sum:,.0f} ₽",
                             "Команда подрядчиков": ", ".join(subs_summary_list) if subs_summary_list else "Без подрядчиков",
-                            "ФОТ Подрядчиков": f"{subs_sum:,.0f} ₽",
+                            "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
                             "Иные задачи": f"{extra_sum:,.0f} ₽" if extra_sum > 0 else "—",
-                            "Итого ФОТ проекта": f"{project_total:,.0f} ₽",
+                            "Итоговый бюджет проекта": f"{project_total:,.0f} ₽",
                             "raw_total": project_total
                         })
                     
                     col_m1, col_m2, col_m3 = st.columns(3)
                     col_m1.metric("Проектов в отчете", len(filtered_df))
                     col_m2.metric("Человек к выплате", f"{len(contractor_payouts)} чел.")
-                    col_m3.metric("Итоговый ФОТ агентства", f"{grand_total_fot:,.0f} ₽".replace(",", " "))
+                    col_m3.metric("Общий бюджет выплат", f"{grand_total_budget:,.0f} ₽".replace(",", " "))
                     
                     st.markdown("---")
                     
-                    st.subheader("📊 1. Таблица по ФОТу проектов")
-                    st.markdown("Сводный бюджет по каждому проекту: сколько начислено менеджеру и распределено на подрядчиков.")
+                    st.subheader("📊 1. Таблица по бюджетам проектов")
+                    st.markdown("Сводная смета по каждому проекту: сколько начислено менеджеру и распределено на подрядчиков.")
                     
-                    df_proj = pd.DataFrame(project_fots).drop(columns=["raw_total"])
+                    df_proj = pd.DataFrame(project_budgets).drop(columns=["raw_total"])
                     st.dataframe(df_proj, use_container_width=True, hide_index=True)
                     
                     st.markdown("---")
