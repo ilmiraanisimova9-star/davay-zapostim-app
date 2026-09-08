@@ -157,7 +157,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 pm_period = st.text_input(
                     "Период / объем (если не полный месяц)", 
                     value="", 
-                    placeholder="Например: 01.07–15.07 или 50%", 
+                    placeholder="Например: 01.07–15.07, 50% или 5 постов", 
                     key=f"pm_per_{proj}"
                 )
             with c2:
@@ -180,7 +180,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             for s_role in chosen_sub_roles:
                 st.markdown(f"#### Роль: **{s_role}**")
                 
-                # Основной исполнитель — selectbox моментально закрывается после клика!
                 chosen_p1 = st.selectbox(
                     f"Исполнитель на роль «{s_role}»", 
                     team_members, 
@@ -193,7 +192,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if chosen_p1 == "➕ Ввести новое имя":
                     p1_name = st.text_input(f"Введите имя ({s_role})", key=f"custom_p1_{s_role}_{proj}")
                 
-                # Возможность добавить второго человека на подмену
                 has_second = st.checkbox(f"➕ Добавить второго исполнителя на роль «{s_role}» (подмена/разделение)", key=f"has_p2_{s_role}_{proj}")
                 p2_name = None
                 if has_second:
@@ -221,7 +219,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         p_period = st.text_input(
                             "Период / объем", 
                             value="", 
-                            placeholder="Например: 01.07–15.07 или 5 клипов", 
+                            placeholder="Например: 01.07–15.07, 50% или 5 постов", 
                             key=f"pper_{p}_{p_idx}_{s_role}_{proj}"
                         )
                     with colC: 
@@ -256,7 +254,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         for i in range(int(task_count)):
             col_ex1, col_ex2 = st.columns([3, 1])
             with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука", key=f"task_txt_{i}")
-            with col_ex2: task_price = st.text_input(f"Стоимость (₽)", placeholder="3000", key=f"task_prc_{i}")
+            with col_ex2: task_price = st.text_input(f"Стоимость (₽)", placeholder="100", key=f"task_prc_{i}")
             if task_text:
                 price_str = f" — {task_price}₽" if task_price.strip() else " — цена не указана"
                 tasks_list.append(f"• {task_text}{price_str}")
