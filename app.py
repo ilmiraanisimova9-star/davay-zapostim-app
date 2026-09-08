@@ -42,6 +42,8 @@ brand_css = """
     div.stButton > button { background-color: #D8FD81 !important; color: #1A1A1A !important; border: none !important; font-weight: 800 !important; font-size: 16px !important; border-radius: 12px !important; }
     div.stButton > button p { color: #1A1A1A !important; font-weight: 800 !important; }
     div.stButton > button:hover { background-color: #B795E8 !important; }
+    div.stButton > button:disabled { background-color: #404040 !important; color: #888888 !important; cursor: not-allowed !important; }
+    div.stButton > button:disabled p { color: #888888 !important; }
     .stAlert { background-color: #262626 !important; border-radius: 10px !important; border: 1px solid #404040 !important; }
     div[data-testid="stAlert"] * { color: #FFFFFF !important; }
     [data-testid="stMetricValue"] { color: #D8FD81 !important; font-weight: 800 !important; }
@@ -177,6 +179,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     selected_projects = st.multiselect("Выберите проекты, которые вы вели в этом месяце", projects, placeholder="Выберите проекты из списка...")
     task_data = {}
+    validation_errors = []
 
     if selected_projects:
         for proj in selected_projects:
@@ -199,13 +202,21 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 pm_amt = st.number_input(
                     "Сумма к выплате ПМ (₽)", 
                     min_value=0,
+                    max_value=1000000 if is_content_package else 8500,
                     value=def_pm_amt, 
                     placeholder="0",
+                    help="Для комплексных проектов базовая ставка не может превышать 8 500 ₽" if not is_content_package else None,
                     key=f"pm_amt_{proj}"
                 )
             
             safe_pm_per = pm_period.strip() if pm_period.strip() else "Полный месяц"
             safe_pm_amt = pm_amt if pm_amt is not None else 0
+
+            if not is_content_package and safe_pm_amt > 8500:
+                err_msg = f"Проект «{proj}»: базовая ставка ПМ не может превышать 8 500 ₽. Вознаграждение за цели и оптимизацию указывается в строках ниже."
+                st.error(f"⚠️ {err_msg}")
+                validation_errors.append(err_msg)
+
             extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
 
             if not is_content_package:
@@ -219,16 +230,24 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     )
                 with kpi_col2:
                     goals_bonus = st.number_input(
-                        "Твоя оценка вклада в цели (₽)", 
+                        "Твоя оценка вклада в цели (до 1 500 ₽)", 
                         min_value=0, 
+                        max_value=1500,
                         value=None, 
                         step=500, 
                         placeholder="0",
+                        help="Максимальное вознаграждение за цели проекта — 1 500 ₽",
                         key=f"goals_bonus_{proj}"
                     )
                 
                 safe_goals_desc = goals_desc.strip() if goals_desc.strip() else "Без описания"
                 safe_goals_bonus = goals_bonus if goals_bonus is not None else 0
+
+                if safe_goals_bonus > 1500:
+                    err_goals = f"Проект «{proj}»: вознаграждение за цели не может превышать 1 500 ₽."
+                    st.error(f"⚠️ {err_goals}")
+                    validation_errors.append(err_goals)
+
                 extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {safe_goals_bonus} ₽")
 
             st.markdown("**💡 Оптимизация бюджета:**")
@@ -331,10 +350,12 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     
                     safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
                     safe_amt = p_amt if p_amt is not None else 0
-                    people_details.append(f"{p} ({safe_p_period}, {p_amt} ₽)")
+                    people_details.append(f"{p} ({safe_p_period}, {safe_amt} ₽)")
                 
                 if current_sum > role_limit and not is_content_package and len(active_people) > 0:
-                    st.error(f"⚠️ Превышение лимита бюджета! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
+                    err_sub = f"Проект «{proj}», роль «{s_role}»: сумма ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽)."
+                    st.error(f"⚠️ Превышение лимита бюджета! {err_sub}")
+                    validation_errors.append(err_sub)
                 
                 if people_details:
                     team_declared.append(f"{s_role}: {', '.join(people_details)}")
@@ -364,29 +385,35 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         if tasks_list: extra_task_desc = "; ".join(tasks_list)
 
     st.markdown(" ")
-    if st.button("🚀 Отправить отчет"):
-        if not manager_name or manager_name.strip() == "": 
-            st.error("Пожалуйста, выберите имя менеджера.")
-        elif not period: 
-            st.error("Пожалуйста, выберите отчетный период.")
-        elif not selected_projects: 
-            st.error("Выберите хотя бы один проект.")
-        else:
-            now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            payload = []
-            for proj, data in task_data.items():
-                payload.append({
-                    "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
-                    "Проект": proj, "Роли": data["roles"], "Детали и KPI": data["extra"],
-                    "Разовые задачи": extra_task_desc if proj == selected_projects[0] else ""
-                })
-            try:
-                res = requests.post(WEBHOOK_URL, json=payload)
-                if res.status_code == 200:
-                    st.success(f"✅ Отчет менеджера **{manager_name}** успешно зафиксирован!")
-                    st.balloons()
-                else: st.error(f"Ошибка: статус {res.status_code}")
-            except Exception as e: st.error(f"Ошибка соединения: {e}")
+    if validation_errors:
+        st.warning("⛔ **Отправка заблокирована!** Исправьте следующие ошибки перед сдачей отчета:")
+        for e in validation_errors:
+            st.markdown(f"• {e}")
+        st.button("🚀 Отправить отчет", disabled=True)
+    else:
+        if st.button("🚀 Отправить отчет"):
+            if not manager_name or manager_name.strip() == "": 
+                st.error("Пожалуйста, выберите имя менеджера.")
+            elif not period: 
+                st.error("Пожалуйста, выберите отчетный период.")
+            elif not selected_projects: 
+                st.error("Выберите хотя бы один проект.")
+            else:
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                payload = []
+                for proj, data in task_data.items():
+                    payload.append({
+                        "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
+                        "Проект": proj, "Роли": data["roles"], "Детали и KPI": data["extra"],
+                        "Разовые задачи": extra_task_desc if proj == selected_projects[0] else ""
+                    })
+                try:
+                    res = requests.post(WEBHOOK_URL, json=payload)
+                    if res.status_code == 200:
+                        st.success(f"✅ Отчет менеджера **{manager_name}** успешно зафиксирован!")
+                        st.balloons()
+                    else: st.error(f"Ошибка: статус {res.status_code}")
+                except Exception as e: st.error(f"Ошибка соединения: {e}")
 
 # ----------------------------------------------------
 # СТРАНИЦА 2: ДАШБОРД РУКОВОДИТЕЛЯ
