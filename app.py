@@ -208,12 +208,14 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     key=f"saved_tot_{proj}"
                 )
             with sav_col3:
-                auto_bonus = saved_total // 2
+                max_bonus = saved_total // 2
                 savings_bonus = st.number_input(
-                    "Бонус менеджера (50%, ₽)", 
+                    "Бонус менеджера (до 50%, ₽)", 
                     min_value=0, 
-                    value=int(auto_bonus), 
+                    max_value=int(max_bonus) if max_bonus > 0 else 100000,
+                    value=0, 
                     step=250, 
+                    help=f"Максимальный лимит: {max_bonus} ₽ (половина сэкономленного)",
                     key=f"sav_bonus_{proj}"
                 )
             
