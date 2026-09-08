@@ -164,11 +164,18 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     key=f"pm_per_{proj}"
                 )
             with c2:
-                def_pm_amt = 0 if is_content_package else 8500
-                pm_amt = st.number_input("Сумма к выплате ПМ (₽)", value=int(def_pm_amt), key=f"pm_amt_{proj}")
+                def_pm_amt = None if is_content_package else 8500
+                pm_amt = st.number_input(
+                    "Сумма к выплате ПМ (₽)", 
+                    min_value=0,
+                    value=def_pm_amt, 
+                    placeholder="0",
+                    key=f"pm_amt_{proj}"
+                )
             
             safe_pm_per = pm_period.strip() if pm_period.strip() else "Полный месяц"
-            extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {pm_amt} ₽")
+            safe_pm_amt = pm_amt if pm_amt is not None else 0
+            extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
 
             if not is_content_package:
                 st.markdown("**🎯 Выполнение целей проекта:**")
@@ -183,13 +190,15 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     goals_bonus = st.number_input(
                         "Твоя оценка вклада в цели (₽)", 
                         min_value=0, 
-                        value=0, 
+                        value=None, 
                         step=500, 
+                        placeholder="0",
                         key=f"goals_bonus_{proj}"
                     )
                 
                 safe_goals_desc = goals_desc.strip() if goals_desc.strip() else "Без описания"
-                extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {goals_bonus} ₽")
+                safe_goals_bonus = goals_bonus if goals_bonus is not None else 0
+                extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {safe_goals_bonus} ₽")
 
             st.markdown("**💡 Оптимизация бюджета:**")
             sav_col1, sav_col2, sav_col3 = st.columns([3, 2, 2])
@@ -203,25 +212,29 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 saved_total = st.number_input(
                     "Сэкономлено агентству (₽)", 
                     min_value=0, 
-                    value=0, 
+                    value=None, 
                     step=500, 
+                    placeholder="0",
                     key=f"saved_tot_{proj}"
                 )
             with sav_col3:
-                max_bonus = saved_total // 2
+                safe_saved_tot = saved_total if saved_total is not None else 0
+                max_bonus = safe_saved_tot // 2
                 savings_bonus = st.number_input(
                     "Бонус менеджера (до 50%, ₽)", 
                     min_value=0, 
                     max_value=int(max_bonus) if max_bonus > 0 else 100000,
-                    value=0, 
+                    value=None, 
                     step=250, 
+                    placeholder="0",
                     help=f"Максимальный лимит: {max_bonus} ₽ (половина сэкономленного)",
                     key=f"sav_bonus_{proj}"
                 )
             
-            if savings_bonus > 0:
+            safe_savings_bonus = savings_bonus if savings_bonus is not None else 0
+            if safe_savings_bonus > 0:
                 safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
-                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {saved_total} ₽); БОНУС ПМ: {savings_bonus} ₽")
+                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {safe_saved_tot} ₽); БОНУС ПМ: {safe_savings_bonus} ₽")
 
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
@@ -274,12 +287,20 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                             key=f"pper_{p}_{p_idx}_{s_role}_{proj}"
                         )
                     with colC: 
-                        def_val = role_limit // len(active_people) if len(active_people) > 0 and not is_content_package else 0
-                        p_amt = st.number_input("Сумма ₽", value=int(def_val), key=f"pamt_{p}_{p_idx}_{s_role}_{proj}")
-                        current_sum += p_amt
+                        def_val = role_limit // len(active_people) if len(active_people) > 0 and not is_content_package else None
+                        p_amt = st.number_input(
+                            "Сумма ₽", 
+                            min_value=0,
+                            value=int(def_val) if def_val is not None else None, 
+                            placeholder="0",
+                            key=f"pamt_{p}_{p_idx}_{s_role}_{proj}"
+                        )
+                        safe_amt = p_amt if p_amt is not None else 0
+                        current_sum += safe_amt
                     
                     safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
-                    people_details.append(f"{p} ({safe_p_period}, {p_amt} ₽)")
+                    safe_amt = p_amt if p_amt is not None else 0
+                    people_details.append(f"{p} ({safe_p_period}, {safe_amt} ₽)")
                 
                 if current_sum > role_limit and not is_content_package and len(active_people) > 0:
                     st.error(f"⚠️ Превышение лимита бюджета! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
