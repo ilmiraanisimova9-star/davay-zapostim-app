@@ -30,19 +30,9 @@ brand_css = """
     label, p, .stMarkdown { color: #F7F7F7 !important; font-size: 15px !important; }
     label p { color: #F7F7F7 !important; font-weight: 600 !important; }
     
-    /* Контрастные и видимые подсказки (placeholders) */
-    ::placeholder {
-        color: #A6A6A6 !important;
-        opacity: 1 !important;
-    }
-    ::-webkit-input-placeholder {
-        color: #A6A6A6 !important;
-        opacity: 1 !important;
-    }
-    :-ms-input-placeholder {
-        color: #A6A6A6 !important;
-        opacity: 1 !important;
-    }
+    ::placeholder { color: #A6A6A6 !important; opacity: 1 !important; }
+    ::-webkit-input-placeholder { color: #A6A6A6 !important; opacity: 1 !important; }
+    :-ms-input-placeholder { color: #A6A6A6 !important; opacity: 1 !important; }
 
     .stSelectbox div[data-baseweb="select"], .stMultiSelect div[data-baseweb="select"], .stTextInput input, .stTextArea textarea, .stNumberInput input {
         background-color: #262626 !important; border: 1px solid #4D4D4D !important; color: #FFFFFF !important; border-radius: 10px !important;
@@ -70,7 +60,7 @@ team_members = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева",
     "Светлана Кулешова", "Злата Курашова", "Вероника Липина",
     "Юлия Лодыгина", "Ева Гусева", "Дарья Витязева",
-    "Виталина Куликова", "Софья Супрун", "➕ Добавить свое имя (если нет в списке)"
+    "Виталина Куликова", "Софья Супрун", "➕ Ввести новое имя"
 ]
 
 projects = [
@@ -161,7 +151,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             is_content_package = st.checkbox("📦 Контент-пакет / Сдельная оплата", key=f"cp_{proj}")
             extra_info_list = []
             
-            # Данные по ставке менеджера
             st.markdown("**Ваша ставка за проект (Проектный менеджер):**")
             c1, c2 = st.columns(2)
             with c1:
@@ -183,44 +172,67 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 kpi_comment = st.text_input("Комментарий к KPI / Оценка", placeholder="Например: цели выполнены досрочно", key=f"kpicom_{proj}")
                 extra_info_list.append(f"KPI: {kpi}. Коммент: {kpi_comment}")
 
-            # Подрядчики проекта
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
             chosen_sub_roles = st.multiselect("Какие роли подрядчиков были на проекте?", subcontractor_roles, placeholder="Выберите роли из списка...", key=f"sub_roles_{proj}")
             
             team_declared = []
             for s_role in chosen_sub_roles:
-                sub_list = [m for m in team_members if "➕" not in m] + ["➕ Ввести новое имя"]
-                people = st.multiselect(f"Исполнители на роли «{s_role}»", sub_list, placeholder="Выберите исполнителей...", key=f"people_{s_role}_{proj}")
+                st.markdown(f"#### Роль: **{s_role}**")
                 
+                # Основной исполнитель — selectbox моментально закрывается после клика!
+                chosen_p1 = st.selectbox(
+                    f"Исполнитель на роль «{s_role}»", 
+                    team_members, 
+                    index=None, 
+                    placeholder="Выберите исполнителя...", 
+                    key=f"p1_sel_{s_role}_{proj}"
+                )
+                
+                p1_name = chosen_p1
+                if chosen_p1 == "➕ Ввести новое имя":
+                    p1_name = st.text_input(f"Введите имя ({s_role})", key=f"custom_p1_{s_role}_{proj}")
+                
+                # Возможность добавить второго человека на подмену
+                has_second = st.checkbox(f"➕ Добавить второго исполнителя на роль «{s_role}» (подмена/разделение)", key=f"has_p2_{s_role}_{proj}")
+                p2_name = None
+                if has_second:
+                    chosen_p2 = st.selectbox(
+                        f"Второй исполнитель на роль «{s_role}»", 
+                        team_members, 
+                        index=None, 
+                        placeholder="Выберите второго исполнителя...", 
+                        key=f"p2_sel_{s_role}_{proj}"
+                    )
+                    p2_name = chosen_p2
+                    if chosen_p2 == "➕ Ввести новое имя":
+                        p2_name = st.text_input(f"Введите имя второго ({s_role})", key=f"custom_p2_{s_role}_{proj}")
+
                 role_limit = ROLE_BASE_RATES.get(s_role, 0)
+                active_people = [p for p in [p1_name, p2_name] if p]
+                
                 current_sum = 0
                 people_details = []
                 
-                for p in people:
-                    p_name = p
-                    if p == "➕ Ввести новое имя":
-                        p_name = st.text_input(f"Введите имя ({s_role})", key=f"custom_{s_role}_{proj}")
-                        if not p_name: continue
-                    
+                for p_idx, p in enumerate(active_people):
                     colA, colB, colC = st.columns([2, 2, 1])
-                    with colA: st.markdown(f"<br>👤 **{p_name}**", unsafe_allow_html=True)
+                    with colA: st.markdown(f"<br>👤 **{p}**", unsafe_allow_html=True)
                     with colB: 
                         p_period = st.text_input(
                             "Период / объем", 
                             value="", 
                             placeholder="Например: 01.07–15.07 или 5 клипов", 
-                            key=f"pper_{p}_{s_role}_{proj}"
+                            key=f"pper_{p}_{p_idx}_{s_role}_{proj}"
                         )
                     with colC: 
-                        def_val = role_limit // len(people) if len(people) > 0 and not is_content_package else 0
-                        p_amt = st.number_input("Сумма ₽", value=int(def_val), key=f"pamt_{p}_{s_role}_{proj}")
+                        def_val = role_limit // len(active_people) if len(active_people) > 0 and not is_content_package else 0
+                        p_amt = st.number_input("Сумма ₽", value=int(def_val), key=f"pamt_{p}_{p_idx}_{s_role}_{proj}")
                         current_sum += p_amt
                     
                     safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
-                    people_details.append(f"{p_name} ({safe_p_period}, {p_amt} ₽)")
+                    people_details.append(f"{p} ({safe_p_period}, {p_amt} ₽)")
                 
-                if current_sum > role_limit and not is_content_package and len(people) > 0:
+                if current_sum > role_limit and not is_content_package and len(active_people) > 0:
                     st.error(f"⚠️ Перерасход ФОТ! Сумма по роли «{s_role}» ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽).")
                 
                 if people_details:
@@ -350,7 +362,6 @@ elif page == "🔒 Дашборд руководителя":
                     
                     st.markdown("---")
                     
-                    # ТАБЛИЦА 1: ФОТ ПРОЕКТОВ
                     st.subheader("📊 1. Таблица по ФОТу проектов")
                     st.markdown("Сводный бюджет по каждому проекту: сколько начислено менеджеру и распределено на подрядчиков.")
                     
@@ -359,7 +370,6 @@ elif page == "🔒 Дашборд руководителя":
                     
                     st.markdown("---")
                     
-                    # ТАБЛИЦА 2: ВЫПЛАТЫ ПОДРЯДЧИКАМ
                     st.subheader("💰 2. Таблица с общей суммой к выплате на человека")
                     st.markdown("Итоговая сумма к переводу каждому специалисту, сложенная со всех проектов.")
                     
