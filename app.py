@@ -213,12 +213,13 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             safe_pm_amt = pm_amt if pm_amt is not None else 0
 
             if not is_content_package and safe_pm_amt > 8500:
-                err_msg = f"Проект «{proj}»: базовая ставка ПМ не может превышать 8 500 ₽. Вознаграждение за цели и оптимизацию указывается в строках ниже."
+                err_msg = f"Проект «{proj}»: базовая ставка ПМ не может превышать 8 500 ₽."
                 st.error(f"⚠️ {err_msg}")
                 validation_errors.append(err_msg)
 
             extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
 
+            safe_goals_bonus = 0
             if not is_content_package:
                 st.markdown("**🎯 Выполнение целей проекта:**")
                 kpi_col1, kpi_col2 = st.columns([3, 2])
@@ -250,47 +251,14 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
                 extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {safe_goals_bonus} ₽")
 
-            st.markdown("**💡 Оптимизация бюджета:**")
-            sav_col1, sav_col2, sav_col3 = st.columns([3, 2, 2])
-            with sav_col1:
-                savings_desc = st.text_input(
-                    "За счет чего удалось сэкономить бюджет?", 
-                    placeholder="Например: договорилась на пакетную скидку", 
-                    key=f"sav_desc_{proj}"
-                )
-            with sav_col2:
-                saved_total = st.number_input(
-                    "Сэкономлено агентству (₽)", 
-                    min_value=0, 
-                    value=None, 
-                    step=500, 
-                    placeholder="0",
-                    key=f"saved_tot_{proj}"
-                )
-            with sav_col3:
-                safe_saved_tot = saved_total if saved_total is not None else 0
-                max_bonus = safe_saved_tot // 2
-                savings_bonus = st.number_input(
-                    "Бонус менеджера (до 50%, ₽)", 
-                    min_value=0, 
-                    max_value=int(max_bonus) if max_bonus > 0 else 100000,
-                    value=None, 
-                    step=250, 
-                    placeholder="0",
-                    help=f"Максимальный лимит: {max_bonus} ₽ (половина сэкономленного)",
-                    key=f"sav_bonus_{proj}"
-                )
-            
-            safe_savings_bonus = savings_bonus if savings_bonus is not None else 0
-            if safe_savings_bonus > 0:
-                safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
-                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {safe_saved_tot} ₽); БОНУС ПМ: {safe_savings_bonus} ₽")
-
             st.markdown("---")
             st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
             chosen_sub_roles = st.multiselect("Какие роли подрядчиков были на проекте?", subcontractor_roles, placeholder="Выберите роли из списка...", key=f"sub_roles_{proj}")
             
             team_declared = []
+            total_subs_limit = 0
+            total_subs_actual = 0
+
             for s_role in chosen_sub_roles:
                 st.markdown(f"#### Роль: **{s_role}**")
                 
@@ -322,6 +290,8 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
                 role_limit = ROLE_BASE_RATES.get(s_role, 0)
                 active_people = [p for p in [p1_name, p2_name] if p]
+                if active_people:
+                    total_subs_limit += role_limit
                 
                 current_sum = 0
                 people_details = []
@@ -352,6 +322,8 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     safe_amt = p_amt if p_amt is not None else 0
                     people_details.append(f"{p} ({safe_p_period}, {safe_amt} ₽)")
                 
+                total_subs_actual += current_sum
+
                 if current_sum > role_limit and not is_content_package and len(active_people) > 0:
                     err_sub = f"Проект «{proj}», роль «{s_role}»: сумма ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽)."
                     st.error(f"⚠️ Превышение лимита бюджета! {err_sub}")
@@ -362,6 +334,48 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             
             if team_declared:
                 extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
+
+            # СКВОЗНОЙ РАСЧЕТ И КОНТРОЛЬ ОПТИМИЗАЦИИ
+            real_savings = max(0, total_subs_limit - total_subs_actual) if not is_content_package else 0
+            max_allowed_bonus = real_savings // 2
+
+            st.markdown("---")
+            st.markdown("**💡 Оптимизация бюджета подрядчиков:**")
+            sav_col1, sav_col2, sav_col3 = st.columns([3, 2, 2])
+            with sav_col1:
+                savings_desc = st.text_input(
+                    "За счет чего удалось сэкономить бюджет?", 
+                    placeholder="Например: договорилась на пакетную скидку", 
+                    key=f"sav_desc_{proj}"
+                )
+            with sav_col2:
+                st.markdown(f"<p style='margin-bottom: 2px; font-size: 14px;'>Сэкономлено агентству (факт):</p><h3 style='margin: 0; color: #D8FD81;'>{real_savings:,.0f} ₽</h3>".replace(",", " "), unsafe_allow_html=True)
+            with sav_col3:
+                savings_bonus = st.number_input(
+                    "Бонус менеджера (до 50%, ₽)", 
+                    min_value=0, 
+                    max_value=int(max_allowed_bonus) if max_allowed_bonus > 0 else 0,
+                    value=None, 
+                    step=250, 
+                    placeholder="0",
+                    help=f"Максимум 50% от реальной экономии по подрядчикам: {max_allowed_bonus} ₽",
+                    key=f"sav_bonus_{proj}"
+                )
+            
+            safe_savings_bonus = savings_bonus if savings_bonus is not None else 0
+
+            if safe_savings_bonus > 0 and real_savings == 0:
+                err_sav = f"Проект «{proj}»: нельзя начислить бонус за экономию, так как по подрядчикам выставлены максимальные ставки (экономия 0 ₽)."
+                st.error(f"⚠️ {err_sav}")
+                validation_errors.append(err_sav)
+            elif safe_savings_bonus > max_allowed_bonus:
+                err_sav = f"Проект «{proj}»: бонус менеджера ({safe_savings_bonus} ₽) превышает 50% от фактической экономии ({max_allowed_bonus} ₽)."
+                st.error(f"⚠️ {err_sav}")
+                validation_errors.append(err_sav)
+
+            if safe_savings_bonus > 0:
+                safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
+                extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {real_savings} ₽); БОНУС ПМ: {safe_savings_bonus} ₽")
 
             task_data[proj] = {
                 "roles": "Проектный менеджер", 
