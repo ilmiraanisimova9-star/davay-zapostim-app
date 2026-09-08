@@ -65,13 +65,19 @@ team_members = [
     "Виталина Куликова", "Софья Супрун", "➕ Ввести новое имя"
 ]
 
-projects_base = [
+default_projects = [
     "Стоматология для детей", "KISS ME FLOWERS", "Вельвет Лазер", 
     "Любимая Кухня", "Лекотека", "Рыболов Сервис", "Сулугуни", 
     "МЦ \"Да Винчи\"", "ТПП", "ООО ИНТИНСКОЕ", "Астромед", 
     "Ресторан Спасский", "Дима Третий", "KATSU", "ДАВАЙ ЗАПОСТИМ",
     "Игорь Паламарчук", "ЛОВ ШЫ"
 ]
+
+if "projects_pool" not in st.session_state:
+    st.session_state["projects_pool"] = list(default_projects)
+
+if "selected_projects" not in st.session_state:
+    st.session_state["selected_projects"] = []
 
 subcontractor_roles = [
     "Контентмейкер", "Дизайнер", "Монтажер", "Видеограф", 
@@ -196,28 +202,40 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     st.markdown("---")
     st.subheader("📋 Проекты под управлением")
 
-    projects_dropdown = projects_base + ["➕ Ввести новый проект"]
-    selected_projects_raw = st.multiselect("Выберите проекты, которые вы вели в этом месяце", projects_dropdown, placeholder="Выберите проекты из списка...")
-    
-    final_selected_projects = []
-    for p_item in selected_projects_raw:
-        if p_item == "➕ Ввести новый проект":
-            new_proj_name = st.text_input(
-                "Введите название нового проекта / сообщества (дословно)",
+    # Блок добавления нового проекта с мгновенным обновлением списка
+    with st.expander("➕ Добавить новый проект (если его еще нет в списке)"):
+        c_new1, c_new2 = st.columns([3, 1])
+        with c_new1:
+            new_proj_input = st.text_input(
+                "Название проекта / сообщества (дословно)", 
                 placeholder="Например: KATSU | Доставка Сыктывкар",
-                help="Укажите название проекта точь-в-точь как называется аккаунт или сообщество в соцсетях — дословно и с сохранением регистра."
+                help="Укажите точное название сообщества в соцсетях с сохранением регистра.",
+                key="new_project_text"
             )
-            clean_proj = new_proj_name.strip()
-            if clean_proj:
-                final_selected_projects.append(clean_proj)
-        else:
-            final_selected_projects.append(p_item)
+        with c_new2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("➕ Добавить проект"):
+                clean_name = new_proj_input.strip()
+                if clean_name:
+                    if clean_name not in st.session_state["projects_pool"]:
+                        st.session_state["projects_pool"].append(clean_name)
+                    if clean_name not in st.session_state["selected_projects"]:
+                        st.session_state["selected_projects"].append(clean_name)
+                    st.rerun()
+
+    chosen_projects = st.multiselect(
+        "Выберите проекты, которые вы вели в этом месяце", 
+        st.session_state["projects_pool"], 
+        default=st.session_state["selected_projects"],
+        placeholder="Выберите проекты из списка..."
+    )
+    st.session_state["selected_projects"] = chosen_projects
 
     task_data = {}
     validation_errors = []
 
-    if final_selected_projects:
-        for proj in final_selected_projects:
+    if chosen_projects:
+        for proj in chosen_projects:
             st.markdown(f"### Проект: **{proj}**")
             
             is_content_package = st.checkbox("📦 Контент-пакет / Сдельная оплата", key=f"cp_{proj}")
@@ -268,7 +286,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     goals_bonus = st.number_input(
                         "Оцени свой вклад в цели (до 1 500 ₽)", 
                         min_value=0, 
-                        max_value=1500,
                         value=None, 
                         step=500, 
                         placeholder="0",
@@ -459,7 +476,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 st.error("Пожалуйста, выберите имя менеджера.")
             elif not period: 
                 st.error("Пожалуйста, выберите отчетный период.")
-            elif not final_selected_projects: 
+            elif not chosen_projects: 
                 st.error("Выберите хотя бы один проект.")
             else:
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
