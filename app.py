@@ -84,6 +84,12 @@ ROLE_BASE_RATES = {
     "Ведение картографических сервисов": 2500, "Комьюнити-менеджмент": 1500, "Выставление счёта за ОРД": 180
 }
 
+def clean_person_name(name_str):
+    if not name_str:
+        return ""
+    words = name_str.strip().split()
+    return " ".join(w.capitalize() for w in words)
+
 def parse_extra_tasks_amount(extra_tasks_str):
     if not extra_tasks_str or not isinstance(extra_tasks_str, str): return 0
     matches = re.findall(r'—\s*(\d+)\s*₽', extra_tasks_str)
@@ -124,12 +130,12 @@ def parse_savings_data(details_str):
     if sav_match:
         desc_list.append(f"💡 Оптимизация: {sav_match.group(1)} (Сэкономлено: {sav_match.group(2)} ₽ ➔ Бонус ПМ: {sav_match.group(3)} ₽)")
         saved_agency = int(sav_match.group(2))
-        pm_bonus = int(sav_match.group(3))
+        pm_bonus += int(sav_match.group(3))
     else:
         old_sav_match = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?);\s*БОНУС ПМ:\s*(\d+)\s*₽', details_str)
         if old_sav_match:
             desc_list.append(f"💡 Оптимизация: {old_sav_match.group(1)} (Бонус ПМ: {old_sav_match.group(2)} ₽)")
-            pm_bonus = int(old_sav_match.group(2))
+            pm_bonus += int(old_sav_match.group(2))
             
     goals_match = re.search(r'ЦЕЛИ:\s*(.*?);\s*(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):\s*(\d+)\s*₽', details_str)
     if goals_match:
@@ -176,7 +182,12 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     with col1:
         selected_manager = st.selectbox("Менеджер проекта", managers_list, index=None, placeholder="Выберите имя...")
         if selected_manager == "➕ Ввести другое имя":
-            manager_name = st.text_input("Введите имя менеджера")
+            manager_name_raw = st.text_input(
+                "Введите имя и фамилию менеджера (как в паспорте)", 
+                placeholder="Например: Анна Смирнова",
+                help="Важно: пишите строго сначала ИМЯ, затем ФАМИЛИЮ, как в паспорте, чтобы выплаты корректно объединялись."
+            )
+            manager_name = clean_person_name(manager_name_raw)
         else:
             manager_name = selected_manager
     with col2:
@@ -280,7 +291,13 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 
                 p1_name = chosen_p1
                 if chosen_p1 == "➕ Ввести новое имя":
-                    p1_name = st.text_input(f"Введите имя ({s_role})", key=f"custom_p1_{s_role}_{proj}")
+                    p1_custom = st.text_input(
+                        f"Введите имя и фамилию ({s_role})", 
+                        placeholder="Например: Иван Иванов (строго: Имя Фамилия)", 
+                        help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Не пишите 'Иванов Иван' или никнеймы.",
+                        key=f"custom_p1_{s_role}_{proj}"
+                    )
+                    p1_name = clean_person_name(p1_custom)
                 
                 has_second = st.checkbox(f"➕ Добавить второго исполнителя на роль «{s_role}» (подмена/разделение)", key=f"has_p2_{s_role}_{proj}")
                 p2_name = None
@@ -294,7 +311,13 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     )
                     p2_name = chosen_p2
                     if chosen_p2 == "➕ Ввести новое имя":
-                        p2_name = st.text_input(f"Введите имя второго ({s_role})", key=f"custom_p2_{s_role}_{proj}")
+                        p2_custom = st.text_input(
+                            f"Введите имя и фамилию второго ({s_role})", 
+                            placeholder="Например: Мария Петрова (строго: Имя Фамилия)", 
+                            help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Не пишите 'Петрова Мария' или никнеймы.",
+                            key=f"custom_p2_{s_role}_{proj}"
+                        )
+                        p2_name = clean_person_name(p2_custom)
 
                 role_limit = ROLE_BASE_RATES.get(s_role, 0)
                 active_people = [p for p in [p1_name, p2_name] if p]
