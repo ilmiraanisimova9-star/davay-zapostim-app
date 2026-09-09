@@ -364,7 +364,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if has_second:
                     chosen_p2 = st.selectbox(
                         f"Второй исполнитель на роль «{s_role}»", 
-                        team_members, 
+                        available_team, 
                         index=None, 
                         placeholder="Выберите второго исполнителя...", 
                         key=f"p2_sel_{s_role}_{proj}"
