@@ -134,9 +134,9 @@ def parse_extra_tasks_amount(extra_tasks_str):
     matches = re.findall(r'—\s*(\d+)\s*₽', extra_tasks_str)
     return sum(int(m) for m in matches)
 
-def parse_pm_payment_breakdown(details_str):
-    pm_match = re.search(r'РОЛЬ \[Проектный менеджер\]: .*?Сумма - (\d+)\s*₽', details_str)
-    base_amt = int(pm_match.group(1)) if pm_match else 8500
+def parse_all_pm_entries(details_str, default_manager_name):
+    pm_list = []
+    blocks = re.findall(r'РОЛЬ \[Проектный менеджер(?:\s*\(2-й ПМ\))?\]:\s*(?:Исполнитель:\s*([^,;]+),\s*)?Данные\s*-\s*([^,;]+),\s*Сумма\s*-\s*(\d+)\s*₽', details_str)
     
     kpi_bonus = 0
     kpi_bonus_match = re.search(r'(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):\s*(\d+)\s*₽', details_str)
@@ -151,14 +151,41 @@ def parse_pm_payment_breakdown(details_str):
     sav_bonus_match = re.search(r'БОНУС ПМ:\s*(\d+)\s*₽', details_str)
     if sav_bonus_match:
         sav_bonus = int(sav_bonus_match.group(1))
-        
-    total_pm = base_amt + kpi_bonus + sav_bonus
-    return {
-        "base": base_amt,
-        "goals_bonus": kpi_bonus,
-        "savings_bonus": sav_bonus,
-        "total": total_pm
-    }
+
+    if blocks:
+        for idx, b in enumerate(blocks):
+            raw_p_name = b[0].strip() if b[0] else ""
+            p_name = raw_p_name if raw_p_name else default_manager_name
+            p_desc = b[1].strip()
+            p_sum = int(b[2])
+            
+            p_kpi = kpi_bonus if idx == 0 else 0
+            p_sav = sav_bonus if idx == 0 else 0
+            total = p_sum + p_kpi + p_sav
+            
+            pm_list.append({
+                "name": p_name,
+                "base": p_sum,
+                "desc": p_desc,
+                "goals_bonus": p_kpi,
+                "savings_bonus": p_sav,
+                "total": total,
+                "is_second": (idx > 0)
+            })
+    else:
+        pm_match = re.search(r'РОЛЬ \[Проектный менеджер\]: .*?Сумма - (\d+)\s*₽', details_str)
+        base_amt = int(pm_match.group(1)) if pm_match else 8500
+        total_pm = base_amt + kpi_bonus + sav_bonus
+        pm_list.append({
+            "name": default_manager_name,
+            "base": base_amt,
+            "desc": "Полный месяц",
+            "goals_bonus": kpi_bonus,
+            "savings_bonus": sav_bonus,
+            "total": total_pm,
+            "is_second": False
+        })
+    return pm_list
 
 def parse_savings_data(details_str):
     saved_agency = 0
@@ -229,7 +256,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         with c_tot1:
             st.markdown(f"#### Итого к выплате вам: <span style='color: #D8FD81;'>{p_data['total_pm']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
         with c_tot2:
-            st.markdown(f"#### Итого выплаты команде: <span style='color: #B795E8;'>{p_data['total_subs']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
+            st.markdown(f"#### Итого выплаты команде/со-менеджерам: <span style='color: #B795E8;'>{p_data['total_subs']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
             
         st.markdown("---")
         
@@ -351,6 +378,8 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         total_pm_payout_calc = 0
         total_subs_payout_calc = 0
 
+        available_team = list(st.session_state["team_pool"]) + ["➕ Ввести разово новое имя"]
+
         if chosen_projects:
             for proj in chosen_projects:
                 st.markdown(f"### Проект: **{proj}**")
@@ -381,12 +410,67 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 raw_pm_amt = st.session_state.get(f"pm_amt_{proj}", pm_amt)
                 safe_pm_amt = raw_pm_amt if raw_pm_amt is not None else 0
 
-                if not is_content_package and safe_pm_amt > 8500:
-                    err_msg = f"Проект «{proj}»: базовая ставка ПМ ({safe_pm_amt} ₽) не может превышать 8 500 ₽."
+                extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
+
+                # РАЗДЕЛЕНИЕ СТАВКИ МЕНЕДЖЕРА
+                has_second_pm = st.checkbox("➕ Разделить менеджерскую ставку (второй ПМ / подмена / менеджер на съемке)", key=f"has_pm2_{proj}")
+                safe_pm2_amt = 0
+                pm2_name = None
+                safe_pm2_per = ""
+
+                if has_second_pm:
+                    st.markdown("##### Второй менеджер проекта:")
+                    col_pm2_a, col_pm2_b, col_pm2_c = st.columns([2, 2, 1])
+                    with col_pm2_a:
+                        chosen_pm2 = st.selectbox(
+                            "Выберите второго менеджера", 
+                            available_team, 
+                            index=None, 
+                            placeholder="Выберите специалиста...", 
+                            key=f"pm2_sel_{proj}"
+                        )
+                        pm2_name = chosen_pm2
+                        if chosen_pm2 == "➕ Ввести разово новое имя":
+                            pm2_custom = st.text_input(
+                                "Имя и Фамилия второго менеджера", 
+                                placeholder="Например: Анастасия Мальцева", 
+                                key=f"pm2_custom_{proj}"
+                            )
+                            pm2_name = clean_person_name(pm2_custom)
+                    with col_pm2_b:
+                        pm2_period = st.text_input(
+                            "Период / роль второго ПМ", 
+                            placeholder="Например: менеджер на съемке, 50% месяца", 
+                            key=f"pm2_per_{proj}"
+                        )
+                        safe_pm2_per = pm2_period.strip() if pm2_period and pm2_period.strip() else "Со-менеджер"
+                    with col_pm2_c:
+                        pm2_amt = st.number_input(
+                            "Сумма второму ПМ (₽)", 
+                            min_value=0, 
+                            value=None, 
+                            placeholder="0", 
+                            key=f"pm2_amt_{proj}"
+                        )
+                        raw_pm2_amt = st.session_state.get(f"pm2_amt_{proj}", pm2_amt)
+                        safe_pm2_amt = raw_pm2_amt if raw_pm2_amt is not None else 0
+
+                    if pm2_name:
+                        extra_info_list.append(f"РОЛЬ [Проектный менеджер (2-й ПМ)]: Исполнитель: {pm2_name}, Данные - {safe_pm2_per}, Сумма - {safe_pm2_amt} ₽")
+                        total_subs_payout_calc += safe_pm2_amt
+                        client_summary_collector.append({
+                            "Проект / Задача": proj,
+                            "Кому выплата (ФИО)": pm2_name,
+                            "Роль": "Проектный менеджер (со-менеджер)",
+                            "Детали / Объем": safe_pm2_per,
+                            "Сумма": f"{safe_pm2_amt:,.0f} ₽".replace(",", " ")
+                        })
+
+                combined_pm_base = safe_pm_amt + safe_pm2_amt
+                if not is_content_package and combined_pm_base > 8500:
+                    err_msg = f"Проект «{proj}»: суммарная ставка проектных менеджеров ({combined_pm_base} ₽) не может превышать 8 500 ₽."
                     st.error(f"⚠️ {err_msg}")
                     validation_errors.append(err_msg)
-
-                extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
 
                 safe_goals_bonus = 0
                 if not is_content_package:
@@ -427,8 +511,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 team_declared = []
                 total_subs_limit = 0
                 total_subs_actual = 0
-
-                available_team = list(st.session_state["team_pool"]) + ["➕ Ввести разово новое имя"]
 
                 for s_role in chosen_sub_roles:
                     st.markdown(f"#### Роль: **{s_role}**")
@@ -579,7 +661,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 client_summary_collector.append({
                     "Проект / Задача": proj,
                     "Кому выплата (ФИО)": manager_name if manager_name else "ПМ",
-                    "Роль": "Проектный менеджер",
+                    "Роль": "Проектный менеджер (ведущий)",
                     "Детали / Объем": pm_details_str,
                     "Сумма": f"{pm_project_total:,.0f} ₽".replace(",", " ")
                 })
@@ -625,7 +707,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if local_storage:
                     draft_to_save = {}
                     for k, v in st.session_state.items():
-                        if k.startswith(("f_", "cp_", "pm_", "goals_", "sub_roles_", "p1_", "p2_", "has_p2_", "custom_p", "pper_", "pamt_", "sav_", "task_", "extra_", "has_extra_")):
+                        if k.startswith(("f_", "cp_", "pm_", "has_pm2_", "pm2_", "goals_", "sub_roles_", "p1_", "p2_", "has_p2_", "custom_p", "pper_", "pamt_", "sav_", "task_", "extra_", "has_extra_")):
                             draft_to_save[k] = v
                     draft_to_save["projects_pool"] = st.session_state.get("projects_pool", default_projects)
                     draft_to_save["selected_projects"] = st.session_state.get("selected_projects", [])
@@ -707,30 +789,39 @@ elif page == "🔒 Дашборд руководителя":
                         p_details = str(row["Детали и KPI"])
                         p_extra = str(row.get("Разовые задачи", ""))
                         
-                        pm_info = parse_pm_payment_breakdown(p_details)
+                        all_pms = parse_all_pm_entries(p_details, p_manager)
+                        lead_pm = all_pms[0]
+                        second_pms = all_pms[1:] if len(all_pms) > 1 else []
+                        
                         subs = parse_subcontractors_from_details(p_details)
                         sav_info = parse_savings_data(p_details)
                         
                         subs_sum = sum(s["sum"] for s in subs)
-                        project_clean_total = pm_info["total"] + subs_sum
+                        second_pm_sum = sum(sp["sum"] if "sum" in sp else sp["base"] for sp in second_pms)
+                        all_pms_total = sum(p["total"] for p in all_pms)
+                        
+                        project_clean_total = all_pms_total + subs_sum
                         grand_total_projects += project_clean_total
                         grand_total_saved += sav_info["saved_agency"]
                         
-                        if p_manager not in contractor_payouts:
-                            contractor_payouts[p_manager] = {"projects": [], "extras": 0, "extra_items": []}
-                        
-                        pm_desc_parts = [f"База: {pm_info['base']} ₽"]
-                        if pm_info['goals_bonus'] > 0:
-                            pm_desc_parts.append(f"Цели: +{pm_info['goals_bonus']} ₽")
-                        if pm_info['savings_bonus'] > 0:
-                            pm_desc_parts.append(f"Бонус за экономию: +{pm_info['savings_bonus']} ₽")
+                        for p_person in all_pms:
+                            name_pm = p_person["name"]
+                            if name_pm not in contractor_payouts:
+                                contractor_payouts[name_pm] = {"projects": [], "extras": 0, "extra_items": []}
                             
-                        contractor_payouts[p_manager]["projects"].append({
-                            "project": p_name,
-                            "role": "Проектный менеджер",
-                            "desc": ", ".join(pm_desc_parts),
-                            "sum": pm_info["total"]
-                        })
+                            p_desc_list = [f"База: {p_person['base']} ₽"]
+                            if p_person['goals_bonus'] > 0:
+                                p_desc_list.append(f"Цели: +{p_person['goals_bonus']} ₽")
+                            if p_person['savings_bonus'] > 0:
+                                p_desc_list.append(f"Бонус за экономию: +{p_person['savings_bonus']} ₽")
+                                
+                            role_label = "Проектный менеджер" if not p_person["is_second"] else "Проектный менеджер (со-менеджер)"
+                            contractor_payouts[name_pm]["projects"].append({
+                                "project": p_name,
+                                "role": role_label,
+                                "desc": ", ".join(p_desc_list),
+                                "sum": p_person["total"]
+                            })
                         
                         for s in subs:
                             c_name = s["name"]
@@ -765,10 +856,10 @@ elif page == "🔒 Дашборд руководителя":
                         
                         project_rows.append({
                             "Проект": p_name,
-                            "Менеджер": p_manager,
-                            "ПМ: База": f"{pm_info['base']:,.0f} ₽",
-                            "ПМ: Цели": f"{pm_info['goals_bonus']:,.0f} ₽" if pm_info['goals_bonus'] > 0 else "—",
-                            "ПМ: Бонус за экономию": f"{pm_info['savings_bonus']:,.0f} ₽" if pm_info['savings_bonus'] > 0 else "—",
+                            "Ведущий ПМ": p_manager,
+                            "ПМ: База (все)": f"{sum(p['base'] for p in all_pms):,.0f} ₽",
+                            "ПМ: Цели": f"{lead_pm['goals_bonus']:,.0f} ₽" if lead_pm['goals_bonus'] > 0 else "—",
+                            "ПМ: Бонус за экономию": f"{lead_pm['savings_bonus']:,.0f} ₽" if lead_pm['savings_bonus'] > 0 else "—",
                             "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
                             "Итого расход на проект": f"{project_clean_total:,.0f} ₽",
                             "Сэкономлено агентству": f"{sav_info['saved_agency']:,.0f} ₽" if sav_info['saved_agency'] > 0 else "0 ₽",
@@ -777,7 +868,7 @@ elif page == "🔒 Дашборд руководителя":
                         
                         project_details_map[p_name] = {
                             "manager": p_manager,
-                            "pm_info": pm_info,
+                            "all_pms": all_pms,
                             "subs": subs,
                             "sav_info": sav_info,
                             "project_clean_total": project_clean_total
@@ -803,10 +894,14 @@ elif page == "🔒 Дашборд руководителя":
                             p_info = project_details_map[selected_detail_proj]
                             cd1, cd2 = st.columns(2)
                             with cd1:
-                                st.markdown(f"**Ответственный ПМ:** {p_info['manager']}")
-                                st.markdown(f"• Базовая ставка: {p_info['pm_info']['base']} ₽")
-                                st.markdown(f"• Доплата за цели: {p_info['pm_info']['goals_bonus']} ₽")
-                                st.markdown(f"• Бонус за экономию: {p_info['pm_info']['savings_bonus']} ₽")
+                                st.markdown(f"**Ответственные менеджеры:**")
+                                for pm_i in p_info["all_pms"]:
+                                    tag = " (ведущий)" if not pm_i["is_second"] else " (со-менеджер / выезд)"
+                                    st.markdown(f"• **{pm_i['name']}{tag}:** ставка {pm_i['base']} ₽ ({pm_i['desc']})")
+                                    if pm_i['goals_bonus'] > 0:
+                                        st.markdown(f"  └ Доплата за цели: +{pm_i['goals_bonus']} ₽")
+                                    if pm_i['savings_bonus'] > 0:
+                                        st.markdown(f"  └ Бонус за экономию: +{pm_i['savings_bonus']} ₽")
                                 st.markdown(f"**Обоснования бонусов и целей:**\n\n{p_info['sav_info']['justification']}")
                             with cd2:
                                 st.markdown("**Команда подрядчиков на проекте:**")
@@ -819,7 +914,7 @@ elif page == "🔒 Дашборд руководителя":
                                     actual_subs = sum(s['sum'] for s in p_info['subs'])
                                     
                                     st.markdown("---")
-                                    st.markdown(f"**Заложено по смете ролей:** **{planned_subs:,.0f} ₽**".replace(",", " "))
+                                    st.markdown(f"**Заложено по смете ролей подрядчиков:** **{planned_subs:,.0f} ₽**".replace(",", " "))
                                     
                                     if actual_subs > planned_subs:
                                         over_amt = actual_subs - planned_subs
