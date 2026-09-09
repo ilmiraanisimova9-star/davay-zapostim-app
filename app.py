@@ -5,6 +5,12 @@ import pandas as pd
 import re
 from datetime import datetime
 
+try:
+    from streamlit_local_storage import LocalStorage
+    local_storage_available = True
+except ImportError:
+    local_storage_available = False
+
 st.set_page_config(
     page_title="ДАВАЙ ЗАПОСТИМ! — Управление и отчеты", 
     page_icon="⚡", 
@@ -50,6 +56,8 @@ brand_css = """
 </style>
 """
 st.markdown(brand_css, unsafe_allow_html=True)
+
+local_storage = LocalStorage() if local_storage_available else None
 
 st.sidebar.title("⚡ ДАВАЙ ЗАПОСТИМ!")
 page = st.sidebar.radio("Выберите раздел:", ["📝 Сдача отчетов (Менеджеры)", "🔒 Дашборд руководителя"])
@@ -203,20 +211,55 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчета менеджера")
     st.markdown("Заполните финансовый отчет по вашим проектам и задействованным подрядчикам.")
 
+    saved_draft = None
+    if local_storage:
+        try:
+            saved_draft = local_storage.getItem("agency_report_draft")
+            if isinstance(saved_draft, str) and saved_draft.strip().startswith("{"):
+                saved_draft = json.loads(saved_draft)
+        except Exception:
+            saved_draft = None
+
+    c_draft1, c_draft2 = st.columns([1, 1])
+    with c_draft1:
+        if saved_draft and isinstance(saved_draft, dict):
+            if st.button("📥 Восстановить черновик из памяти"):
+                for k, v in saved_draft.items():
+                    if k in ["projects_pool", "team_pool", "selected_projects"]:
+                        st.session_state[k] = v
+                    else:
+                        st.session_state[k] = v
+                st.success("Черновик успешно восстановлен!")
+                st.rerun()
+    with c_draft2:
+        if saved_draft:
+            if st.button("🗑 Очистить сохраненный черновик"):
+                local_storage.deleteItem("agency_report_draft")
+                st.info("Черновик удален.")
+                st.rerun()
+
     col1, col2 = st.columns(2)
     with col1:
-        selected_manager = st.selectbox("Менеджер проекта", managers_list, index=None, placeholder="Выберите имя...")
+        m_index = None
+        if "f_manager" in st.session_state and st.session_state["f_manager"] in managers_list:
+            m_index = managers_list.index(st.session_state["f_manager"])
+        selected_manager = st.selectbox("Менеджер проекта", managers_list, index=m_index, placeholder="Выберите имя...", key="f_manager")
         if selected_manager == "➕ Ввести другое имя":
             manager_name_raw = st.text_input(
                 "Введите имя и фамилию менеджера (как в паспорте)", 
                 placeholder="Например: Анна Смирнова",
-                help="Важно: пишите строго сначала ИМЯ, затем ФАМИЛИЮ, как в паспорте."
+                help="Важно: пишите строго сначала ИМЯ, затем ФАМИЛИЮ, как в паспорте.",
+                key="f_manager_custom"
             )
             manager_name = clean_person_name(manager_name_raw)
         else:
             manager_name = selected_manager
     with col2:
-        period = st.selectbox("Отчетный период", ["Июль 2026", "Август 2026", "Сентябрь 2026", "Октябрь 2026"], index=None, placeholder="Выберите период...")
+        p_periods = ["Июль 2026", "Август 2026", "Сентябрь 2026", "Октябрь 2026"]
+        p_index = None
+        if "f_period" in st.session_state and st.session_state["f_period"] in p_periods:
+            p_index = p_periods.index(st.session_state["f_period"])
+        period = st.selectbox("Отчетный период", p_periods, index=p_index, placeholder="Выберите период...", key="f_period")
 
     st.markdown("---")
     st.subheader("📋 Проекты под управлением")
@@ -270,7 +313,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             with c1:
                 pm_period = st.text_input(
                     "Период / объем (если не полный месяц)", 
-                    value="", 
                     placeholder="Например: 01.07–15.07, 50% или 5 постов", 
                     key=f"pm_per_{proj}"
                 )
@@ -285,7 +327,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     key=f"pm_amt_{proj}"
                 )
             
-            safe_pm_per = pm_period.strip() if pm_period.strip() else "Полный месяц"
+            safe_pm_per = pm_period.strip() if pm_period and pm_period.strip() else "Полный месяц"
             raw_pm_amt = st.session_state.get(f"pm_amt_{proj}", pm_amt)
             safe_pm_amt = raw_pm_amt if raw_pm_amt is not None else 0
 
@@ -317,7 +359,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         key=f"goals_bonus_{proj}"
                     )
                 
-                safe_goals_desc = goals_desc.strip() if goals_desc.strip() else "Без описания"
+                safe_goals_desc = goals_desc.strip() if goals_desc and goals_desc.strip() else "Без описания"
                 raw_goals_bonus = st.session_state.get(f"goals_bonus_{proj}", goals_bonus)
                 safe_goals_bonus = raw_goals_bonus if raw_goals_bonus is not None else 0
 
@@ -393,7 +435,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     with colB: 
                         p_period = st.text_input(
                             "Период / объем", 
-                            value="", 
                             placeholder="Например: 01.07–15.07, 50% или 5 постов", 
                             key=f"pper_{p}_{p_idx}_{s_role}_{proj}"
                         )
@@ -410,7 +451,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         safe_amt = raw_p_amt if raw_p_amt is not None else 0
                         current_sum += safe_amt
                     
-                    safe_p_period = p_period.strip() if p_period.strip() else "Полный месяц"
+                    safe_p_period = p_period.strip() if p_period and p_period.strip() else "Полный месяц"
                     people_details.append(f"{p} ({safe_p_period}, {safe_amt} ₽)")
                 
                 total_subs_actual += current_sum
@@ -464,7 +505,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 validation_errors.append(err_sav)
 
             if safe_savings_bonus > 0:
-                safe_sav_desc = savings_desc.strip() if savings_desc.strip() else "Причина не указана"
+                safe_sav_desc = savings_desc.strip() if savings_desc and savings_desc.strip() else "Причина не указана"
                 extra_info_list.append(f"ОПТИМИЗАЦИЯ: {safe_sav_desc} (Экономия: {real_savings} ₽); БОНУС ПМ: {safe_savings_bonus} ₽")
 
             task_data[proj] = {
@@ -474,52 +515,73 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             st.markdown("---")
 
     st.subheader("✨ Иные задачи, не учтённые выше")
-    has_extra = st.checkbox("Были ли иные задачи за отчетный период?")
+    has_extra = st.checkbox("Были ли иные задачи за отчетный период?", key="has_extra_tasks_toggle")
     extra_task_desc = ""
     if has_extra:
-        task_count = st.number_input("Сколько иных задач вы согласовали?", min_value=1, max_value=10, value=1)
+        task_count = st.number_input("Сколько иных задач вы согласовали?", min_value=1, max_value=10, value=1, key="extra_task_count")
         tasks_list = []
         for i in range(int(task_count)):
             col_ex1, col_ex2 = st.columns([3, 1])
             with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука", key=f"task_txt_{i}")
             with col_ex2: task_price = st.text_input(f"Вознаграждение (₽)", placeholder="100", key=f"task_prc_{i}")
             if task_text:
-                price_str = f" — {task_price}₽" if task_price.strip() else " — цена не указана"
+                price_str = f" — {task_price}₽" if task_price and task_price.strip() else " — цена не указана"
                 tasks_list.append(f"• {task_text}{price_str}")
         if tasks_list: extra_task_desc = "; ".join(tasks_list)
 
     st.markdown(" ")
-    if validation_errors:
-        st.warning("⛔ **Отправка заблокирована!** Исправьте следующие ошибки перед сдачей отчета:")
-        for e in validation_errors:
-            st.markdown(f"• {e}")
-        st.button("🚀 Отправить отчет", disabled=True)
-    else:
-        if st.button("🚀 Отправить отчет"):
-            if len(validation_errors) > 0:
-                st.error("⛔ Отправка заблокирована из-за превышения установленных лимитов!")
-            elif not manager_name or manager_name.strip() == "": 
-                st.error("Пожалуйста, выберите имя менеджера.")
-            elif not period: 
-                st.error("Пожалуйста, выберите отчетный период.")
-            elif not chosen_projects: 
-                st.error("Выберите хотя бы один проект.")
+
+    col_btn1, col_btn2 = st.columns([2, 1])
+    with col_btn2:
+        if st.button("💾 Сохранить черновик"):
+            if local_storage:
+                draft_to_save = {}
+                for k, v in st.session_state.items():
+                    if k.startswith(("f_", "cp_", "pm_", "goals_", "sub_roles_", "p1_", "p2_", "has_p2_", "custom_p", "pper_", "pamt_", "sav_", "task_", "extra_", "has_extra_")):
+                        draft_to_save[k] = v
+                draft_to_save["projects_pool"] = st.session_state.get("projects_pool", default_projects)
+                draft_to_save["selected_projects"] = st.session_state.get("selected_projects", [])
+                draft_to_save["team_pool"] = st.session_state.get("team_pool", default_team_members)
+                
+                local_storage.setItem("agency_report_draft", json.dumps(draft_to_save))
+                st.success("💾 Черновик сохранен в браузере! Данные не пропадут.")
             else:
-                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                payload = []
-                for idx, (proj, data) in enumerate(task_data.items()):
-                    payload.append({
-                        "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
-                        "Проект": proj, "Роли": data["roles"], "Детали и KPI": data["extra"],
-                        "Разовые задачи": extra_task_desc if idx == 0 else ""
-                    })
-                try:
-                    res = requests.post(WEBHOOK_URL, json=payload)
-                    if res.status_code == 200:
-                        st.success(f"✅ Отчет менеджера **{manager_name}** успешно зафиксирован!")
-                        st.balloons()
-                    else: st.error(f"Ошибка: статус {res.status_code}")
-                except Exception as e: st.error(f"Ошибка соединения: {e}")
+                st.warning("Библиотека LocalStorage не установлена. Добавьте streamlit-local-storage в requirements.txt")
+
+    with col_btn1:
+        if validation_errors:
+            st.warning("⛔ **Отправка заблокирована!** Исправьте ошибки перед сдачей отчета:")
+            for e in validation_errors:
+                st.markdown(f"• {e}")
+            st.button("🚀 Отправить отчет", disabled=True)
+        else:
+            if st.button("🚀 Отправить отчет"):
+                if len(validation_errors) > 0:
+                    st.error("⛔ Отправка заблокирована из-за превышения установленных лимитов!")
+                elif not manager_name or manager_name.strip() == "": 
+                    st.error("Пожалуйста, выберите имя менеджера.")
+                elif not period: 
+                    st.error("Пожалуйста, выберите отчетный период.")
+                elif not chosen_projects: 
+                    st.error("Выберите хотя бы один проект.")
+                else:
+                    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    payload = []
+                    for idx, (proj, data) in enumerate(task_data.items()):
+                        payload.append({
+                            "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
+                            "Проект": proj, "Роли": data["roles"], "Детали и KPI": data["extra"],
+                            "Разовые задачи": extra_task_desc if idx == 0 else ""
+                        })
+                    try:
+                        res = requests.post(WEBHOOK_URL, json=payload)
+                        if res.status_code == 200:
+                            st.success(f"✅ Отчет менеджера **{manager_name}** успешно зафиксирован!")
+                            st.balloons()
+                            if local_storage:
+                                local_storage.deleteItem("agency_report_draft")
+                        else: st.error(f"Ошибка: статус {res.status_code}")
+                    except Exception as e: st.error(f"Ошибка соединения: {e}")
 
 # ----------------------------------------------------
 # СТРАНИЦА 2: ДАШБОРД РУКОВОДИТЕЛЯ
@@ -663,6 +725,27 @@ elif page == "🔒 Дашборд руководителя":
                                 if p_info["subs"]:
                                     for s in p_info["subs"]:
                                         st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
+                                    
+                                    unique_roles = set(s['role'] for s in p_info['subs'])
+                                    planned_subs = sum(ROLE_BASE_RATES.get(r, 0) for r in unique_roles)
+                                    actual_subs = sum(s['sum'] for s in p_info['subs'])
+                                    
+                                    st.markdown("---")
+                                    st.markdown(f"**Заложено по смете ролей:** **{planned_subs:,.0f} ₽**".replace(",", " "))
+                                    
+                                    if actual_subs > planned_subs:
+                                        over_amt = actual_subs - planned_subs
+                                        st.markdown(
+                                            f"**Фактически за месяц:** <span style='color: #FF4B4B; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽ ⚠️ (Превышение лимита на {over_amt:,.0f} ₽)</span>".replace(",", " "), 
+                                            unsafe_allow_html=True
+                                        )
+                                    else:
+                                        saved_amt = planned_subs - actual_subs
+                                        status_label = f" (экономия {saved_amt:,.0f} ₽)" if saved_amt > 0 else " (в рамках сметы)"
+                                        st.markdown(
+                                            f"**Фактически за месяц:** <span style='color: #D8FD81; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽</span> <span style='color: #A6A6A6;'>{status_label}</span>".replace(",", " "), 
+                                            unsafe_allow_html=True
+                                        )
                                 else:
                                     st.markdown("— Подрядчики не привлекались")
 
