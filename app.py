@@ -237,7 +237,6 @@ def parse_subcontractors_from_details(details_str):
                 sub_data.append({"name": p_name, "role": role, "desc": p_desc, "sum": p_sum})
     return sub_data
 
-# ДИАЛОГ ПРЕДПРОСМОТРА БЕЗ УНИЧТОЖЕНИЯ ВИДЖЕТОВ ФОРМЫ
 @st.dialog("🔍 Проверка отчета перед отправкой", width="large")
 def preview_dialog_window():
     p_data = st.session_state["preview_data"]
@@ -285,7 +284,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчета менеджера")
 
     if st.session_state.get("report_submitted_success", False):
-        st.success("🎉 **Отчет успешно зафиксирован в системе!** Все данные сохранены в базу.")
+        st.success("🎉 **Отчет успешно сохранен в системе!** Если за этот месяц уже был отчет, данные были аккуратно обновлены без задвоений.")
         st.balloons()
         if st.button("🔄 Сдать еще один отчет"):
             st.session_state["report_submitted_success"] = False
@@ -295,6 +294,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     st.markdown("Заполните финансовый отчет по вашим проектам и задействованным подрядчикам.")
 
+    # Локальные черновики
     saved_draft = None
     if local_storage:
         try:
@@ -307,7 +307,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     c_draft1, c_draft2 = st.columns([1, 1])
     with c_draft1:
         if saved_draft and isinstance(saved_draft, dict):
-            if st.button("📥 Восстановить черновик из памяти"):
+            if st.button("📥 Восстановить черновик из памяти браузера"):
                 for k, v in saved_draft.items():
                     st.session_state[k] = v
                 st.success("Черновик успешно восстановлен!")
@@ -341,6 +341,92 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         if "f_period" in st.session_state and st.session_state["f_period"] in p_periods:
             p_index = p_periods.index(st.session_state["f_period"])
         period = st.selectbox("Отчетный период", p_periods, index=p_index, placeholder="Выберите период...", key="f_period")
+
+    # БЛОК КОПИРОВАНИЯ / РЕДАКТИРОВАНИЯ ИЗ ТАБЛИЦЫ
+    if manager_name and manager_name.strip() and manager_name != "➕ Ввести другое имя":
+        try:
+            db_res = requests.get(WEBHOOK_URL)
+            if db_res.status_code == 200:
+                raw_json = db_res.json()
+                if raw_json and isinstance(raw_json, list):
+                    all_db = pd.DataFrame(raw_json)
+                    if not all_db.empty and "Исполнитель" in all_db.columns and "Период" in all_db.columns:
+                        m_reports = all_db[all_db["Исполнитель"] == manager_name]
+                        avail_periods = m_reports["Период"].dropna().unique().tolist()
+                        
+                        if avail_periods:
+                            with st.expander("📂 Загрузить прошлый отчет (для редактирования или копирования на новый месяц)"):
+                                st.markdown("Вы можете загрузить данные из ранее отправленного отчета, чтобы не вбивать проекты и ставки вручную:")
+                                c_load1, c_load2 = st.columns([3, 1])
+                                with c_load1:
+                                    src_period = st.selectbox("Выберите месяц, откуда загрузить данные:", avail_periods, key="src_period_select")
+                                with c_load2:
+                                    st.markdown("<br>", unsafe_allow_html=True)
+                                    if st.button("📥 Загрузить в форму"):
+                                        target_rows = m_reports[m_reports["Период"] == src_period]
+                                        loaded_projs = target_rows["Проект"].tolist()
+                                        
+                                        for lp in loaded_projs:
+                                            if lp not in st.session_state["projects_pool"]:
+                                                st.session_state["projects_pool"].append(lp)
+                                        st.session_state["selected_projects"] = list(loaded_projs)
+                                        
+                                        for _, r_data in target_rows.iterrows():
+                                            p_item = r_data["Проект"]
+                                            d_str = str(r_data["Детали и KPI"])
+                                            
+                                            all_pms_data = parse_all_pm_entries(d_str, manager_name)
+                                            lead_p = all_pms_data[0]
+                                            st.session_state[f"pm_per_{p_item}"] = lead_p["desc"]
+                                            st.session_state[f"pm_amt_{p_item}"] = lead_p["base"]
+                                            st.session_state[f"goals_bonus_{p_item}"] = lead_p["goals_bonus"]
+                                            
+                                            g_match = re.search(r'ЦЕЛИ:\s*(.*?);\s*ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ:', d_str)
+                                            if g_match:
+                                                st.session_state[f"goals_desc_{p_item}"] = g_match.group(1).strip()
+                                                
+                                            if len(all_pms_data) > 1:
+                                                sec_p = all_pms_data[1]
+                                                st.session_state[f"has_pm2_{p_item}"] = True
+                                                if sec_p["name"] not in st.session_state["team_pool"]:
+                                                    st.session_state["team_pool"].append(sec_p["name"])
+                                                st.session_state[f"pm2_sel_{p_item}"] = sec_p["name"]
+                                                st.session_state[f"pm2_per_{p_item}"] = sec_p["desc"]
+                                                st.session_state[f"pm2_amt_{p_item}"] = sec_p["base"]
+                                            else:
+                                                st.session_state[f"has_pm2_{p_item}"] = False
+                                                
+                                            subs_data = parse_subcontractors_from_details(d_str)
+                                            roles_found = list(dict.fromkeys([s["role"] for s in subs_data]))
+                                            st.session_state[f"sub_roles_{p_item}"] = roles_found
+                                            
+                                            for role_name in roles_found:
+                                                matching = [s for s in subs_data if s["role"] == role_name]
+                                                if len(matching) >= 1:
+                                                    if matching[0]["name"] not in st.session_state["team_pool"]:
+                                                        st.session_state["team_pool"].append(matching[0]["name"])
+                                                    st.session_state[f"p1_sel_{role_name}_{p_item}"] = matching[0]["name"]
+                                                    st.session_state[f"pper_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["desc"]
+                                                    st.session_state[f"pamt_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["sum"]
+                                                    st.session_state[f"has_p2_{role_name}_{p_item}"] = False
+                                                if len(matching) >= 2:
+                                                    if matching[1]["name"] not in st.session_state["team_pool"]:
+                                                        st.session_state["team_pool"].append(matching[1]["name"])
+                                                    st.session_state[f"has_p2_{role_name}_{p_item}"] = True
+                                                    st.session_state[f"p2_sel_{role_name}_{p_item}"] = matching[1]["name"]
+                                                    st.session_state[f"pper_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["desc"]
+                                                    st.session_state[f"pamt_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["sum"]
+
+                                            sav_d = parse_savings_data(d_str)
+                                            st.session_state[f"sav_bonus_{p_item}"] = sav_d["pm_bonus"]
+                                            s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:', d_str)
+                                            if s_desc_m:
+                                                st.session_state[f"sav_desc_{p_item}"] = s_desc_m.group(1).strip()
+
+                                        st.success(f"Данные за **{src_period}** успешно подтянуты в форму! При необходимости измените месяц и цифры.")
+                                        st.rerun()
+        except Exception:
+            pass
 
     st.markdown("---")
     st.subheader("📋 Проекты под управлением")
