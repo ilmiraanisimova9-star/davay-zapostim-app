@@ -82,6 +82,28 @@ if "selected_projects" not in st.session_state:
 if "team_pool" not in st.session_state:
     st.session_state["team_pool"] = list(default_team_members)
 
+def clean_person_name(name_str):
+    if not name_str:
+        return ""
+    words = name_str.strip().split()
+    return " ".join(w.capitalize() for w in words)
+
+def add_new_project_callback():
+    val = st.session_state.get("new_project_text", "").strip()
+    if val:
+        if val not in st.session_state["projects_pool"]:
+            st.session_state["projects_pool"].append(val)
+        if val not in st.session_state["selected_projects"]:
+            st.session_state["selected_projects"].append(val)
+    st.session_state["new_project_text"] = ""
+
+def add_new_teammate_callback():
+    raw_val = st.session_state.get("new_sub_team_text", "")
+    val = clean_person_name(raw_val)
+    if val and val not in st.session_state["team_pool"]:
+        st.session_state["team_pool"].append(val)
+    st.session_state["new_sub_team_text"] = ""
+
 subcontractor_roles = [
     "Контентмейкер", "Дизайнер", "Монтажер", "Видеограф", 
     "Ведение картографических сервисов", "Комьюнити-менеджмент", "Выставление счёта за ОРД"
@@ -92,12 +114,6 @@ ROLE_BASE_RATES = {
     "Монтажер": 5000, "Видеограф": 5000, "Региональная управляющая": 10000,
     "Ведение картографических сервисов": 2500, "Комьюнити-менеджмент": 1500, "Выставление счёта за ОРД": 180
 }
-
-def clean_person_name(name_str):
-    if not name_str:
-        return ""
-    words = name_str.strip().split()
-    return " ".join(w.capitalize() for w in words)
 
 def parse_extra_tasks_amount(extra_tasks_str):
     if not extra_tasks_str or not isinstance(extra_tasks_str, str): return 0
@@ -208,7 +224,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     with st.expander("➕ Добавить новый проект (без ограничений по количеству)"):
         c_new1, c_new2 = st.columns([3, 1])
         with c_new1:
-            new_proj_input = st.text_input(
+            st.text_input(
                 "Название проекта / сообщества (дословно)", 
                 placeholder="Например: KATSU | Доставка Сыктывкар",
                 help="Укажите точное название сообщества в соцсетях с сохранением регистра.",
@@ -216,15 +232,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             )
         with c_new2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ Добавить проект"):
-                clean_name = new_proj_input.strip()
-                if clean_name:
-                    if clean_name not in st.session_state["projects_pool"]:
-                        st.session_state["projects_pool"].append(clean_name)
-                    if clean_name not in st.session_state["selected_projects"]:
-                        st.session_state["selected_projects"].append(clean_name)
-                    st.session_state["new_project_text"] = ""
-                    st.rerun()
+            st.button("➕ Добавить проект", on_click=add_new_project_callback)
 
     chosen_projects = st.multiselect(
         "Выберите проекты, которые вы вели в этом месяце", 
@@ -237,7 +245,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     with st.expander("👤 Добавить нового исполнителя/подрядчика в общий список команды"):
         c_sub1, c_sub2 = st.columns([3, 1])
         with c_sub1:
-            new_sub_input = st.text_input(
+            st.text_input(
                 "Имя и Фамилия подрядчика (как в паспорте)",
                 placeholder="Например: Алина Соколова",
                 help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Подрядчик добавится в выпадающий список для всех ролей.",
@@ -245,12 +253,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             )
         with c_sub2:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ Добавить в команду"):
-                clean_sub = clean_person_name(new_sub_input)
-                if clean_sub and clean_sub not in st.session_state["team_pool"]:
-                    st.session_state["team_pool"].append(clean_sub)
-                    st.session_state["new_sub_team_text"] = ""
-                    st.rerun()
+            st.button("➕ Добавить в команду", on_click=add_new_teammate_callback)
 
     task_data = {}
     validation_errors = []
@@ -361,7 +364,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if has_second:
                     chosen_p2 = st.selectbox(
                         f"Второй исполнитель на роль «{s_role}»", 
-                        team_members, 
+                        available_team, 
                         index=None, 
                         placeholder="Выберите второго исполнителя...", 
                         key=f"p2_sel_{s_role}_{proj}"
