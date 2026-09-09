@@ -58,11 +58,11 @@ managers_list = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева", "➕ Ввести другое имя"
 ]
 
-team_members = [
+default_team_members = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева",
     "Светлана Кулешова", "Злата Курашова", "Вероника Липина",
     "Юлия Лодыгина", "Ева Гусева", "Дарья Витязева",
-    "Виталина Куликова", "Софья Супрун", "➕ Ввести новое имя"
+    "Виталина Куликова", "Софья Супрун"
 ]
 
 default_projects = [
@@ -78,6 +78,9 @@ if "projects_pool" not in st.session_state:
 
 if "selected_projects" not in st.session_state:
     st.session_state["selected_projects"] = []
+
+if "team_pool" not in st.session_state:
+    st.session_state["team_pool"] = list(default_team_members)
 
 subcontractor_roles = [
     "Контентмейкер", "Дизайнер", "Монтажер", "Видеограф", 
@@ -202,8 +205,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     st.markdown("---")
     st.subheader("📋 Проекты под управлением")
 
-    # Блок добавления нового проекта с мгновенным обновлением списка
-    with st.expander("➕ Добавить новый проект (если его еще нет в списке)"):
+    with st.expander("➕ Добавить новый проект (без ограничений по количеству)"):
         c_new1, c_new2 = st.columns([3, 1])
         with c_new1:
             new_proj_input = st.text_input(
@@ -230,6 +232,23 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         placeholder="Выберите проекты из списка..."
     )
     st.session_state["selected_projects"] = chosen_projects
+
+    with st.expander("👤 Добавить нового исполнителя/подрядчика в общий список команды"):
+        c_sub1, c_sub2 = st.columns([3, 1])
+        with c_sub1:
+            new_sub_input = st.text_input(
+                "Имя и Фамилия подрядчика (как в паспорте)",
+                placeholder="Например: Алина Соколова",
+                help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Подрядчик добавится в выпадающий список для всех ролей.",
+                key="new_sub_team_text"
+            )
+        with c_sub2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("➕ Добавить в команду"):
+                clean_sub = clean_person_name(new_sub_input)
+                if clean_sub and clean_sub not in st.session_state["team_pool"]:
+                    st.session_state["team_pool"].append(clean_sub)
+                    st.rerun()
 
     task_data = {}
     validation_errors = []
@@ -312,19 +331,21 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             total_subs_limit = 0
             total_subs_actual = 0
 
+            available_team = list(st.session_state["team_pool"]) + ["➕ Ввести разово новое имя"]
+
             for s_role in chosen_sub_roles:
                 st.markdown(f"#### Роль: **{s_role}**")
                 
                 chosen_p1 = st.selectbox(
                     f"Исполнитель на роль «{s_role}»", 
-                    team_members, 
+                    available_team, 
                     index=None, 
                     placeholder="Выберите исполнителя...", 
                     key=f"p1_sel_{s_role}_{proj}"
                 )
                 
                 p1_name = chosen_p1
-                if chosen_p1 == "➕ Ввести новое имя":
+                if chosen_p1 == "➕ Ввести разово новое имя":
                     p1_custom = st.text_input(
                         f"Введите имя и фамилию ({s_role})", 
                         placeholder="Например: Иван Иванов (строго: Имя Фамилия)", 
@@ -338,13 +359,13 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if has_second:
                     chosen_p2 = st.selectbox(
                         f"Второй исполнитель на роль «{s_role}»", 
-                        team_members, 
+                        available_team, 
                         index=None, 
                         placeholder="Выберите второго исполнителя...", 
                         key=f"p2_sel_{s_role}_{proj}"
                     )
                     p2_name = chosen_p2
-                    if chosen_p2 == "➕ Ввести новое имя":
+                    if chosen_p2 == "➕ Ввести разово новое имя":
                         p2_custom = st.text_input(
                             f"Введите имя и фамилию второго ({s_role})", 
                             placeholder="Например: Мария Петрова (строго: Имя Фамилия)", 
