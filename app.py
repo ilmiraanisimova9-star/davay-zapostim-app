@@ -5,12 +5,6 @@ import pandas as pd
 import re
 from datetime import datetime
 
-try:
-    from streamlit_local_storage import LocalStorage
-    local_storage_available = True
-except ImportError:
-    local_storage_available = False
-
 st.set_page_config(
     page_title="ДАВАЙ ЗАПОСТИМ! — Управление и отчеты", 
     page_icon="⚡", 
@@ -56,8 +50,6 @@ brand_css = """
 </style>
 """
 st.markdown(brand_css, unsafe_allow_html=True)
-
-local_storage = LocalStorage() if local_storage_available else None
 
 st.sidebar.title("⚡ ДАВАЙ ЗАПОСТИМ!")
 page = st.sidebar.radio("Выберите раздел:", ["📝 Сдача отчетов (Менеджеры)", "🔒 Дашборд руководителя"])
@@ -237,6 +229,65 @@ def parse_subcontractors_from_details(details_str):
                 sub_data.append({"name": p_name, "role": role, "desc": p_desc, "sum": p_sum})
     return sub_data
 
+def populate_form_from_records(rows_df, manager_name):
+    loaded_projs = rows_df["Проект"].dropna().unique().tolist()
+    for lp in loaded_projs:
+        if lp not in st.session_state["projects_pool"]:
+            st.session_state["projects_pool"].append(lp)
+    st.session_state["selected_projects"] = list(loaded_projs)
+    
+    for _, r_data in rows_df.iterrows():
+        p_item = str(r_data["Проект"])
+        d_str = str(r_data.get("Детали и KPI", ""))
+        
+        all_pms_data = parse_all_pm_entries(d_str, manager_name)
+        lead_p = all_pms_data[0]
+        st.session_state[f"pm_per_{p_item}"] = lead_p["desc"]
+        st.session_state[f"pm_amt_{p_item}"] = lead_p["base"]
+        st.session_state[f"goals_bonus_{p_item}"] = lead_p["goals_bonus"]
+        
+        g_match = re.search(r'ЦЕЛИ:\s*(.*?);\s*(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):', d_str)
+        if g_match:
+            st.session_state[f"goals_desc_{p_item}"] = g_match.group(1).strip()
+            
+        if len(all_pms_data) > 1:
+            sec_p = all_pms_data[1]
+            st.session_state[f"has_pm2_{p_item}"] = True
+            if sec_p["name"] not in st.session_state["team_pool"]:
+                st.session_state["team_pool"].append(sec_p["name"])
+            st.session_state[f"pm2_sel_{p_item}"] = sec_p["name"]
+            st.session_state[f"pm2_per_{p_item}"] = sec_p["desc"]
+            st.session_state[f"pm2_amt_{p_item}"] = sec_p["base"]
+        else:
+            st.session_state[f"has_pm2_{p_item}"] = False
+            
+        subs_data = parse_subcontractors_from_details(d_str)
+        roles_found = list(dict.fromkeys([s["role"] for s in subs_data]))
+        st.session_state[f"sub_roles_{p_item}"] = roles_found
+        
+        for role_name in roles_found:
+            matching = [s for s in subs_data if s["role"] == role_name]
+            if len(matching) >= 1:
+                if matching[0]["name"] not in st.session_state["team_pool"]:
+                    st.session_state["team_pool"].append(matching[0]["name"])
+                st.session_state[f"p1_sel_{role_name}_{p_item}"] = matching[0]["name"]
+                st.session_state[f"pper_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["desc"]
+                st.session_state[f"pamt_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["sum"]
+                st.session_state[f"has_p2_{role_name}_{p_item}"] = False
+            if len(matching) >= 2:
+                if matching[1]["name"] not in st.session_state["team_pool"]:
+                    st.session_state["team_pool"].append(matching[1]["name"])
+                st.session_state[f"has_p2_{role_name}_{p_item}"] = True
+                st.session_state[f"p2_sel_{role_name}_{p_item}"] = matching[1]["name"]
+                st.session_state[f"pper_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["desc"]
+                st.session_state[f"pamt_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["sum"]
+
+        sav_d = parse_savings_data(d_str)
+        st.session_state[f"sav_bonus_{p_item}"] = sav_d["pm_bonus"]
+        s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:', d_str)
+        if s_desc_m:
+            st.session_state[f"sav_desc_{p_item}"] = s_desc_m.group(1).strip()
+
 @st.dialog("🔍 Проверка отчета перед отправкой", width="large")
 def preview_dialog_window():
     p_data = st.session_state["preview_data"]
@@ -267,8 +318,6 @@ def preview_dialog_window():
                 res = requests.post(WEBHOOK_URL, json=p_data["payload"])
                 if res.status_code == 200:
                     st.session_state["report_submitted_success"] = True
-                    if local_storage:
-                        local_storage.deleteItem("agency_report_draft")
                     st.session_state["open_preview_dialog"] = False
                     st.session_state["preview_data"] = None
                     st.rerun()
@@ -294,31 +343,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     st.markdown("Заполните финансовый отчет по вашим проектам и задействованным подрядчикам.")
 
-    # Локальные черновики
-    saved_draft = None
-    if local_storage:
-        try:
-            saved_draft = local_storage.getItem("agency_report_draft")
-            if isinstance(saved_draft, str) and saved_draft.strip().startswith("{"):
-                saved_draft = json.loads(saved_draft)
-        except Exception:
-            saved_draft = None
-
-    c_draft1, c_draft2 = st.columns([1, 1])
-    with c_draft1:
-        if saved_draft and isinstance(saved_draft, dict):
-            if st.button("📥 Восстановить черновик из памяти браузера"):
-                for k, v in saved_draft.items():
-                    st.session_state[k] = v
-                st.success("Черновик успешно восстановлен!")
-                st.rerun()
-    with c_draft2:
-        if saved_draft:
-            if st.button("🗑 Очистить сохраненный черновик"):
-                local_storage.deleteItem("agency_report_draft")
-                st.info("Черновик удален.")
-                st.rerun()
-
     col1, col2 = st.columns(2)
     with col1:
         m_index = None
@@ -342,10 +366,36 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             p_index = p_periods.index(st.session_state["f_period"])
         period = st.selectbox("Отчетный период", p_periods, index=p_index, placeholder="Выберите период...", key="f_period")
 
-    # БЛОК КОПИРОВАНИЯ / РЕДАКТИРОВАНИЯ ИЗ ТАБЛИЦЫ
+    # ОБЛАЧНЫЕ ЧЕРНОВИКИ И КОПИРОВАНИЕ ИЗ ТАБЛИЦЫ
     if manager_name and manager_name.strip() and manager_name != "➕ Ввести другое имя":
+        # 1. Проверка наличия сохраненного черновика в Google Таблице
         try:
-            db_res = requests.get(WEBHOOK_URL)
+            draft_res = requests.get(f"{WEBHOOK_URL}?sheet=Черновики", timeout=5)
+            if draft_res.status_code == 200:
+                draft_data = draft_res.json()
+                if draft_data and isinstance(draft_data, list):
+                    df_drafts = pd.DataFrame(draft_data)
+                    if not df_drafts.empty and "Исполнитель" in df_drafts.columns and "Период" in df_drafts.columns:
+                        m_drafts = df_drafts[df_drafts["Исполнитель"] == manager_name]
+                        if not m_drafts.empty:
+                            draft_periods = m_drafts["Период"].dropna().unique().tolist()
+                            c_dr1, c_dr2 = st.columns([3, 1])
+                            with c_dr1:
+                                target_draft_p = st.selectbox("📌 Найден сохраненный черновик в таблице:", draft_periods, key="cloud_draft_period")
+                            with c_dr2:
+                                st.markdown("<br>", unsafe_allow_html=True)
+                                if st.button("📥 Восстановить черновик"):
+                                    matched_draft_rows = m_drafts[m_drafts["Период"] == target_draft_p]
+                                    populate_form_from_records(matched_draft_rows, manager_name)
+                                    st.session_state["f_period"] = target_draft_p
+                                    st.success("Черновик успешно восстановлен!")
+                                    st.rerun()
+        except Exception:
+            pass
+
+        # 2. Загрузка ранее сданного отчета (копирование/редактирование)
+        try:
+            db_res = requests.get(WEBHOOK_URL, timeout=5)
             if db_res.status_code == 200:
                 raw_json = db_res.json()
                 if raw_json and isinstance(raw_json, list):
@@ -364,65 +414,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                                     st.markdown("<br>", unsafe_allow_html=True)
                                     if st.button("📥 Загрузить в форму"):
                                         target_rows = m_reports[m_reports["Период"] == src_period]
-                                        loaded_projs = target_rows["Проект"].tolist()
-                                        
-                                        for lp in loaded_projs:
-                                            if lp not in st.session_state["projects_pool"]:
-                                                st.session_state["projects_pool"].append(lp)
-                                        st.session_state["selected_projects"] = list(loaded_projs)
-                                        
-                                        for _, r_data in target_rows.iterrows():
-                                            p_item = r_data["Проект"]
-                                            d_str = str(r_data["Детали и KPI"])
-                                            
-                                            all_pms_data = parse_all_pm_entries(d_str, manager_name)
-                                            lead_p = all_pms_data[0]
-                                            st.session_state[f"pm_per_{p_item}"] = lead_p["desc"]
-                                            st.session_state[f"pm_amt_{p_item}"] = lead_p["base"]
-                                            st.session_state[f"goals_bonus_{p_item}"] = lead_p["goals_bonus"]
-                                            
-                                            g_match = re.search(r'ЦЕЛИ:\s*(.*?);\s*ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ:', d_str)
-                                            if g_match:
-                                                st.session_state[f"goals_desc_{p_item}"] = g_match.group(1).strip()
-                                                
-                                            if len(all_pms_data) > 1:
-                                                sec_p = all_pms_data[1]
-                                                st.session_state[f"has_pm2_{p_item}"] = True
-                                                if sec_p["name"] not in st.session_state["team_pool"]:
-                                                    st.session_state["team_pool"].append(sec_p["name"])
-                                                st.session_state[f"pm2_sel_{p_item}"] = sec_p["name"]
-                                                st.session_state[f"pm2_per_{p_item}"] = sec_p["desc"]
-                                                st.session_state[f"pm2_amt_{p_item}"] = sec_p["base"]
-                                            else:
-                                                st.session_state[f"has_pm2_{p_item}"] = False
-                                                
-                                            subs_data = parse_subcontractors_from_details(d_str)
-                                            roles_found = list(dict.fromkeys([s["role"] for s in subs_data]))
-                                            st.session_state[f"sub_roles_{p_item}"] = roles_found
-                                            
-                                            for role_name in roles_found:
-                                                matching = [s for s in subs_data if s["role"] == role_name]
-                                                if len(matching) >= 1:
-                                                    if matching[0]["name"] not in st.session_state["team_pool"]:
-                                                        st.session_state["team_pool"].append(matching[0]["name"])
-                                                    st.session_state[f"p1_sel_{role_name}_{p_item}"] = matching[0]["name"]
-                                                    st.session_state[f"pper_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["desc"]
-                                                    st.session_state[f"pamt_{matching[0]['name']}_0_{role_name}_{p_item}"] = matching[0]["sum"]
-                                                    st.session_state[f"has_p2_{role_name}_{p_item}"] = False
-                                                if len(matching) >= 2:
-                                                    if matching[1]["name"] not in st.session_state["team_pool"]:
-                                                        st.session_state["team_pool"].append(matching[1]["name"])
-                                                    st.session_state[f"has_p2_{role_name}_{p_item}"] = True
-                                                    st.session_state[f"p2_sel_{role_name}_{p_item}"] = matching[1]["name"]
-                                                    st.session_state[f"pper_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["desc"]
-                                                    st.session_state[f"pamt_{matching[1]['name']}_1_{role_name}_{p_item}"] = matching[1]["sum"]
-
-                                            sav_d = parse_savings_data(d_str)
-                                            st.session_state[f"sav_bonus_{p_item}"] = sav_d["pm_bonus"]
-                                            s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:', d_str)
-                                            if s_desc_m:
-                                                st.session_state[f"sav_desc_{p_item}"] = s_desc_m.group(1).strip()
-
+                                        populate_form_from_records(target_rows, manager_name)
                                         st.success(f"Данные за **{src_period}** успешно подтянуты в форму! При необходимости измените месяц и цифры.")
                                         st.rerun()
         except Exception:
@@ -796,20 +788,34 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     col_btn1, col_btn2 = st.columns([2, 1])
     with col_btn2:
-        if st.button("💾 Сохранить черновик"):
-            if local_storage:
-                draft_to_save = {}
-                for k, v in st.session_state.items():
-                    if k.startswith(("f_", "cp_", "pm_", "has_pm2_", "pm2_", "goals_", "sub_roles_", "p1_", "p2_", "has_p2_", "custom_p", "pper_", "pamt_", "sav_", "task_", "extra_", "has_extra_")):
-                        draft_to_save[k] = v
-                draft_to_save["projects_pool"] = st.session_state.get("projects_pool", default_projects)
-                draft_to_save["selected_projects"] = st.session_state.get("selected_projects", [])
-                draft_to_save["team_pool"] = st.session_state.get("team_pool", default_team_members)
-                
-                local_storage.setItem("agency_report_draft", json.dumps(draft_to_save))
-                st.success("💾 Черновик сохранен в браузере! Данные не пропадут.")
+        if st.button("💾 Сохранить черновик в таблицу"):
+            if not manager_name or manager_name.strip() == "":
+                st.error("Для сохранения черновика укажите имя менеджера.")
+            elif not period:
+                st.error("Для сохранения черновика выберите отчетный период.")
             else:
-                st.warning("Библиотека LocalStorage не установлена.")
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                draft_payload = []
+                for idx, (proj, data) in enumerate(task_data.items()):
+                    draft_payload.append({
+                        "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
+                        "Проект": proj, "Роли": data["roles"], "Детали и KPI": data["extra"],
+                        "Разовые задачи": extra_task_desc if idx == 0 else ""
+                    })
+                if not draft_payload:
+                    draft_payload.append({
+                        "Дата и время": now_str, "Исполнитель": manager_name, "Период": period,
+                        "Проект": "Черновик", "Роли": "Проектный менеджер", "Детали и KPI": "",
+                        "Разовые задачи": extra_task_desc
+                    })
+                try:
+                    res = requests.post(WEBHOOK_URL, json={"action": "save_draft", "data": draft_payload})
+                    if res.status_code == 200:
+                        st.success(f"💾 Черновик для **{manager_name}** ({period}) надежно сохранен в Google Таблице! Он доступен с любого устройства.")
+                    else:
+                        st.error(f"Ошибка сохранения черновика: {res.status_code}")
+                except Exception as ex:
+                    st.error(f"Ошибка соединения: {ex}")
 
     with col_btn1:
         if validation_errors:
