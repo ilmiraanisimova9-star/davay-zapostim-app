@@ -369,7 +369,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             p_index = p_periods.index(st.session_state["f_period"])
         period = st.selectbox("Отчетный период", p_periods, index=p_index, placeholder="Выберите период...", key="f_period")
 
-    # ОБЛАЧНЫЕ ЧЕРНОВИКИ И КОПИРОВАНИЕ ИЗ ТАБЛИЦЫ
     if manager_name and manager_name.strip() and manager_name != "➕ Ввести другое имя":
         try:
             draft_res = requests.get(f"{WEBHOOK_URL}?sheet=Черновики", timeout=5)
@@ -890,11 +889,20 @@ elif page == "🔒 Дашборд руководителя":
                 
                 c_filter1, c_filter2 = st.columns(2)
                 with c_filter1:
-                    selected_period = st.selectbox("Отчетный период:", sorted_periods if sorted_periods else periods)
+                    # Поле пустое по умолчанию
+                    selected_period = st.selectbox(
+                        "Отчетный период:", 
+                        sorted_periods if sorted_periods else periods,
+                        index=None,
+                        placeholder="Выберите период..."
+                    )
+                
+                if not selected_period:
+                    st.info("👆 Пожалуйста, выберите отчетный период выше, чтобы загрузить данные.")
+                    st.stop()
                 
                 period_df = df[df["Период"] == selected_period]
                 
-                # ФИЛЬТР ПО МЕНЕДЖЕРУ
                 available_pms = ["Все менеджеры (общая сводка)"] + sorted(period_df["Исполнитель"].dropna().unique().tolist())
                 with c_filter2:
                     selected_pm_filter = st.selectbox("Фильтр по менеджеру отчета:", available_pms)
@@ -995,7 +1003,6 @@ elif page == "🔒 Дашборд руководителя":
                         "raw_total": project_clean_total
                     })
                     
-                    # ПРАВИЛЬНОЕ ОБЪЕДИНЕНИЕ ДАННЫХ В КАРТОЧКУ (без затирания)
                     if p_name not in project_details_map:
                         project_details_map[p_name] = {
                             "managers": [p_manager],
