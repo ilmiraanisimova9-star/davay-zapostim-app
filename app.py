@@ -88,6 +88,9 @@ if "open_preview_dialog" not in st.session_state:
 if "preview_data" not in st.session_state:
     st.session_state["preview_data"] = None
 
+if "is_admin_auth" not in st.session_state:
+    st.session_state["is_admin_auth"] = False
+
 def clean_person_name(name_str):
     if not name_str:
         return ""
@@ -368,7 +371,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     # ОБЛАЧНЫЕ ЧЕРНОВИКИ И КОПИРОВАНИЕ ИЗ ТАБЛИЦЫ
     if manager_name and manager_name.strip() and manager_name != "➕ Ввести другое имя":
-        # 1. Проверка наличия сохраненного черновика в Google Таблице
         try:
             draft_res = requests.get(f"{WEBHOOK_URL}?sheet=Черновики", timeout=5)
             if draft_res.status_code == 200:
@@ -393,7 +395,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         except Exception:
             pass
 
-        # 2. Загрузка ранее сданного отчета (копирование/редактирование)
         try:
             db_res = requests.get(WEBHOOK_URL, timeout=5)
             if db_res.status_code == 200:
@@ -497,7 +498,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
             extra_info_list.append(f"РОЛЬ [Проектный менеджер]: Данные - {safe_pm_per}, Сумма - {safe_pm_amt} ₽")
 
-            # РАЗДЕЛЕНИЕ СТАВКИ МЕНЕДЖЕРА
             has_second_pm = st.checkbox("➕ Разделить менеджерскую ставку (второй ПМ / подмена / менеджер на съемке)", key=f"has_pm2_{proj}")
             safe_pm2_amt = 0
             pm2_name = None
@@ -860,239 +860,280 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 # ----------------------------------------------------
 elif page == "🔒 Дашборд руководителя":
     st.title("🔒 Дашборд руководителя")
-    password = st.text_input("Введите пароль:", type="password")
     
-    if password == "оплата подрядчиков26!":
-        try:
-            res = requests.get(WEBHOOK_URL)
-            if res.status_code == 200:
-                df = pd.DataFrame(res.json())
-                if not df.empty and "Исполнитель" in df.columns:
-                    periods = df["Период"].dropna().unique().tolist()
-                    ordered_default = ["Октябрь 2026", "Сентябрь 2026", "Август 2026", "Июль 2026"]
-                    sorted_periods = [p for p in ordered_default if p in periods] + [p for p in periods if p not in ordered_default]
-                    
+    if not st.session_state["is_admin_auth"]:
+        c_pwd1, c_pwd2 = st.columns([3, 1])
+        with c_pwd1:
+            entered_pwd = st.text_input("Введите пароль руководителя:", type="password", key="admin_pwd_input")
+        with c_pwd2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("🔑 Войти в дашборд"):
+                if entered_pwd.strip() == "оплата подрядчиков26!":
+                    st.session_state["is_admin_auth"] = True
+                    st.rerun()
+                else:
+                    st.error("Неверный пароль.")
+        st.stop()
+    else:
+        if st.sidebar.button("🚪 Выйти из дашборда"):
+            st.session_state["is_admin_auth"] = False
+            st.rerun()
+
+    try:
+        res = requests.get(WEBHOOK_URL)
+        if res.status_code == 200:
+            df = pd.DataFrame(res.json())
+            if not df.empty and "Исполнитель" in df.columns:
+                periods = df["Период"].dropna().unique().tolist()
+                ordered_default = ["Октябрь 2026", "Сентябрь 2026", "Август 2026", "Июль 2026"]
+                sorted_periods = [p for p in ordered_default if p in periods] + [p for p in periods if p not in ordered_default]
+                
+                c_filter1, c_filter2 = st.columns(2)
+                with c_filter1:
                     selected_period = st.selectbox("Отчетный период:", sorted_periods if sorted_periods else periods)
-                    filtered_df = df[df["Период"] == selected_period]
+                
+                period_df = df[df["Период"] == selected_period]
+                
+                # ФИЛЬТР ПО МЕНЕДЖЕРУ
+                available_pms = ["Все менеджеры (общая сводка)"] + sorted(period_df["Исполнитель"].dropna().unique().tolist())
+                with c_filter2:
+                    selected_pm_filter = st.selectbox("Фильтр по менеджеру отчета:", available_pms)
+
+                if selected_pm_filter != "Все менеджеры (общая сводка)":
+                    filtered_df = period_df[period_df["Исполнитель"] == selected_pm_filter]
+                else:
+                    filtered_df = period_df
+                
+                project_rows = []
+                project_details_map = {}
+                contractor_payouts = {}
+                extra_tasks_records = []
+                seen_extras = set()
+                
+                grand_total_projects = 0
+                grand_total_extras = 0
+                grand_total_saved = 0
+                
+                for idx, row in filtered_df.iterrows():
+                    p_name = row["Проект"]
+                    p_manager = row["Исполнитель"]
+                    p_details = str(row["Детали и KPI"])
+                    p_extra = str(row.get("Разовые задачи", ""))
                     
-                    project_rows = []
-                    project_details_map = {}
-                    contractor_payouts = {}
-                    extra_tasks_records = []
-                    seen_extras = set()
+                    all_pms = parse_all_pm_entries(p_details, p_manager)
+                    lead_pm = all_pms[0]
                     
-                    grand_total_projects = 0
-                    grand_total_extras = 0
-                    grand_total_saved = 0
+                    subs = parse_subcontractors_from_details(p_details)
+                    sav_info = parse_savings_data(p_details)
                     
-                    for idx, row in filtered_df.iterrows():
-                        p_name = row["Проект"]
-                        p_manager = row["Исполнитель"]
-                        p_details = str(row["Детали и KPI"])
-                        p_extra = str(row.get("Разовые задачи", ""))
+                    subs_sum = sum(s["sum"] for s in subs)
+                    all_pms_total = sum(p["total"] for p in all_pms)
+                    
+                    project_clean_total = all_pms_total + subs_sum
+                    grand_total_projects += project_clean_total
+                    grand_total_saved += sav_info["saved_agency"]
+                    
+                    for p_person in all_pms:
+                        name_pm = p_person["name"]
+                        if name_pm not in contractor_payouts:
+                            contractor_payouts[name_pm] = {"projects": [], "extras": 0, "extra_items": []}
                         
-                        all_pms = parse_all_pm_entries(p_details, p_manager)
-                        lead_pm = all_pms[0]
-                        second_pms = all_pms[1:] if len(all_pms) > 1 else []
-                        
-                        subs = parse_subcontractors_from_details(p_details)
-                        sav_info = parse_savings_data(p_details)
-                        
-                        subs_sum = sum(s["sum"] for s in subs)
-                        all_pms_total = sum(p["total"] for p in all_pms)
-                        
-                        project_clean_total = all_pms_total + subs_sum
-                        grand_total_projects += project_clean_total
-                        grand_total_saved += sav_info["saved_agency"]
-                        
-                        for p_person in all_pms:
-                            name_pm = p_person["name"]
-                            if name_pm not in contractor_payouts:
-                                contractor_payouts[name_pm] = {"projects": [], "extras": 0, "extra_items": []}
+                        p_desc_list = [f"База: {p_person['base']} ₽"]
+                        if p_person['goals_bonus'] > 0:
+                            p_desc_list.append(f"Цели: +{p_person['goals_bonus']} ₽")
+                        if p_person['savings_bonus'] > 0:
+                            p_desc_list.append(f"Бонус за экономию: +{p_person['savings_bonus']} ₽")
                             
-                            p_desc_list = [f"База: {p_person['base']} ₽"]
-                            if p_person['goals_bonus'] > 0:
-                                p_desc_list.append(f"Цели: +{p_person['goals_bonus']} ₽")
-                            if p_person['savings_bonus'] > 0:
-                                p_desc_list.append(f"Бонус за экономию: +{p_person['savings_bonus']} ₽")
-                                
-                            role_label = "Проектный менеджер" if not p_person["is_second"] else "Проектный менеджер (со-менеджер)"
-                            contractor_payouts[name_pm]["projects"].append({
-                                "project": p_name,
-                                "role": role_label,
-                                "desc": ", ".join(p_desc_list),
-                                "sum": p_person["total"]
-                            })
-                        
-                        for s in subs:
-                            c_name = s["name"]
-                            if c_name not in contractor_payouts:
-                                contractor_payouts[c_name] = {"projects": [], "extras": 0, "extra_items": []}
-                            contractor_payouts[c_name]["projects"].append({
-                                "project": p_name,
-                                "role": s["role"],
-                                "desc": s["desc"],
-                                "sum": s["sum"]
-                            })
-                        
-                        extra_sum = parse_extra_tasks_amount(p_extra)
-                        if extra_sum > 0:
-                            clean_task_name = re.sub(r'\s*—\s*\d+\s*₽?', '', p_extra).strip()
-                            clean_task_name = clean_task_name.lstrip("•").strip()
-                            
-                            extra_key = (p_manager, clean_task_name, extra_sum)
-                            if extra_key not in seen_extras:
-                                seen_extras.add(extra_key)
-                                grand_total_extras += extra_sum
-                                contractor_payouts[p_manager]["extras"] += extra_sum
-                                contractor_payouts[p_manager]["extra_items"].append({
-                                    "desc": clean_task_name,
-                                    "sum": extra_sum
-                                })
-                                extra_tasks_records.append({
-                                    "Менеджер": p_manager,
-                                    "Задача": clean_task_name,
-                                    "Сумма": f"{extra_sum:,.0f} ₽".replace(",", " ")
-                                })
-                        
-                        project_rows.append({
-                            "Проект": p_name,
-                            "Ведущий ПМ": p_manager,
-                            "ПМ: База (все)": f"{sum(p['base'] for p in all_pms):,.0f} ₽",
-                            "ПМ: Цели": f"{lead_pm['goals_bonus']:,.0f} ₽" if lead_pm['goals_bonus'] > 0 else "—",
-                            "ПМ: Бонус за экономию": f"{lead_pm['savings_bonus']:,.0f} ₽" if lead_pm['savings_bonus'] > 0 else "—",
-                            "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
-                            "Итого расход на проект": f"{project_clean_total:,.0f} ₽",
-                            "Сэкономлено агентству": f"{sav_info['saved_agency']:,.0f} ₽" if sav_info['saved_agency'] > 0 else "0 ₽",
-                            "raw_total": project_clean_total
+                        role_label = "Проектный менеджер" if not p_person["is_second"] else "Проектный менеджер (со-менеджер)"
+                        contractor_payouts[name_pm]["projects"].append({
+                            "project": p_name,
+                            "role": role_label,
+                            "desc": ", ".join(p_desc_list),
+                            "sum": p_person["total"]
                         })
+                    
+                    for s in subs:
+                        c_name = s["name"]
+                        if c_name not in contractor_payouts:
+                            contractor_payouts[c_name] = {"projects": [], "extras": 0, "extra_items": []}
+                        contractor_payouts[c_name]["projects"].append({
+                            "project": p_name,
+                            "role": s["role"],
+                            "desc": s["desc"],
+                            "sum": s["sum"]
+                        })
+                    
+                    extra_sum = parse_extra_tasks_amount(p_extra)
+                    if extra_sum > 0:
+                        clean_task_name = re.sub(r'\s*—\s*\d+\s*₽?', '', p_extra).strip()
+                        clean_task_name = clean_task_name.lstrip("•").strip()
                         
+                        extra_key = (p_manager, clean_task_name, extra_sum)
+                        if extra_key not in seen_extras:
+                            seen_extras.add(extra_key)
+                            grand_total_extras += extra_sum
+                            contractor_payouts[p_manager]["extras"] += extra_sum
+                            contractor_payouts[p_manager]["extra_items"].append({
+                                "desc": clean_task_name,
+                                "sum": extra_sum
+                            })
+                            extra_tasks_records.append({
+                                "Менеджер": p_manager,
+                                "Задача": clean_task_name,
+                                "Сумма": f"{extra_sum:,.0f} ₽".replace(",", " ")
+                            })
+                    
+                    project_rows.append({
+                        "Проект": p_name,
+                        "Ведущий ПМ": p_manager,
+                        "ПМ: База": f"{sum(p['base'] for p in all_pms):,.0f} ₽",
+                        "ПМ: Цели": f"{lead_pm['goals_bonus']:,.0f} ₽" if lead_pm['goals_bonus'] > 0 else "—",
+                        "ПМ: Бонус за экономию": f"{lead_pm['savings_bonus']:,.0f} ₽" if lead_pm['savings_bonus'] > 0 else "—",
+                        "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
+                        "Итого расход на проект": f"{project_clean_total:,.0f} ₽",
+                        "Сэкономлено агентству": f"{sav_info['saved_agency']:,.0f} ₽" if sav_info['saved_agency'] > 0 else "0 ₽",
+                        "raw_total": project_clean_total
+                    })
+                    
+                    # ПРАВИЛЬНОЕ ОБЪЕДИНЕНИЕ ДАННЫХ В КАРТОЧКУ (без затирания)
+                    if p_name not in project_details_map:
                         project_details_map[p_name] = {
-                            "manager": p_manager,
-                            "all_pms": all_pms,
-                            "subs": subs,
-                            "sav_info": sav_info,
-                            "project_clean_total": project_clean_total
+                            "managers": [p_manager],
+                            "all_pms": list(all_pms),
+                            "subs": list(subs),
+                            "justifications": [sav_info["justification"]] if sav_info["justification"] != "—" else [],
+                            "clean_total": project_clean_total
                         }
+                    else:
+                        if p_manager not in project_details_map[p_name]["managers"]:
+                            project_details_map[p_name]["managers"].append(p_manager)
+                        for pm_item in all_pms:
+                            if not any(x["name"] == pm_item["name"] and x["desc"] == pm_item["desc"] for x in project_details_map[p_name]["all_pms"]):
+                                project_details_map[p_name]["all_pms"].append(pm_item)
+                        for s_item in subs:
+                            if not any(x["name"] == s_item["name"] and x["role"] == s_item["role"] for x in project_details_map[p_name]["subs"]):
+                                project_details_map[p_name]["subs"].append(s_item)
+                        if sav_info["justification"] != "—" and sav_info["justification"] not in project_details_map[p_name]["justifications"]:
+                            project_details_map[p_name]["justifications"].append(sav_info["justification"])
+                        project_details_map[p_name]["clean_total"] += project_clean_total
 
-                    col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                    col_m1.metric("Проектов в отчете", len(filtered_df))
-                    col_m2.metric("Специалистов к выплате", f"{len(contractor_payouts)} чел.")
-                    col_m3.metric("Бюджет проектов (факт)", f"{grand_total_projects:,.0f} ₽".replace(",", " "))
-                    col_m4.metric("Сэкономлено агентству", f"{grand_total_saved:,.0f} ₽".replace(",", " "))
-                    
-                    st.markdown("---")
-                    
-                    st.subheader("📊 1. Бюджеты проектов (чистая экономика)")
-                    st.markdown("Сводная смета строго по проектным расходам клиента без примеси разовых агентских поручений.")
-                    
-                    df_proj = pd.DataFrame(project_rows).drop(columns=["raw_total"])
-                    st.dataframe(df_proj, use_container_width=True, hide_index=True)
-                    
-                    with st.expander("🔍 Карточка детального просмотра проекта (состав команды и обоснования)"):
-                        selected_detail_proj = st.selectbox("Выберите проект для изучения:", list(project_details_map.keys()))
-                        if selected_detail_proj:
-                            p_info = project_details_map[selected_detail_proj]
-                            cd1, cd2 = st.columns(2)
-                            with cd1:
-                                st.markdown(f"**Ответственные менеджеры:**")
-                                for pm_i in p_info["all_pms"]:
-                                    tag = " (ведущий)" if not pm_i["is_second"] else " (со-менеджер / выезд)"
-                                    st.markdown(f"• **{pm_i['name']}{tag}:** ставка {pm_i['base']} ₽ ({pm_i['desc']})")
-                                    if pm_i['goals_bonus'] > 0:
-                                        st.markdown(f"  └ Доплата за цели: +{pm_i['goals_bonus']} ₽")
-                                    if pm_i['savings_bonus'] > 0:
-                                        st.markdown(f"  └ Бонус за экономию: +{pm_i['savings_bonus']} ₽")
-                                st.markdown(f"**Обоснования бонусов и целей:**\n\n{p_info['sav_info']['justification']}")
-                            with cd2:
-                                st.markdown("**Команда подрядчиков на проекте:**")
-                                if p_info["subs"]:
-                                    for s in p_info["subs"]:
-                                        st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
-                                    
-                                    unique_roles = set(s['role'] for s in p_info['subs'])
-                                    planned_subs = sum(ROLE_BASE_RATES.get(r, 0) for r in unique_roles)
-                                    actual_subs = sum(s['sum'] for s in p_info['subs'])
-                                    
-                                    st.markdown("---")
-                                    st.markdown(f"**Заложено по смете ролей подрядчиков:** **{planned_subs:,.0f} ₽**".replace(",", " "))
-                                    
-                                    if actual_subs > planned_subs:
-                                        over_amt = actual_subs - planned_subs
-                                        st.markdown(
-                                            f"**Фактически за месяц:** <span style='color: #FF4B4B; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽ ⚠️ (Превышение лимита на {over_amt:,.0f} ₽)</span>".replace(",", " "), 
-                                            unsafe_allow_html=True
-                                        )
-                                    else:
-                                        saved_amt = planned_subs - actual_subs
-                                        status_label = f" (экономия {saved_amt:,.0f} ₽)" if saved_amt > 0 else " (в рамках сметы)"
-                                        st.markdown(
-                                            f"**Фактически за месяц:** <span style='color: #D8FD81; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽</span> <span style='color: #A6A6A6;'>{status_label}</span>".replace(",", " "), 
-                                            unsafe_allow_html=True
-                                        )
+                col_m1, col_m2, col_m3, col_m4 = st.columns(4)
+                col_m1.metric("Проектов в выборке", len(filtered_df))
+                col_m2.metric("Специалистов к выплате", f"{len(contractor_payouts)} чел.")
+                col_m3.metric("Бюджет проектов (факт)", f"{grand_total_projects:,.0f} ₽".replace(",", " "))
+                col_m4.metric("Сэкономлено агентству", f"{grand_total_saved:,.0f} ₽".replace(",", " "))
+                
+                st.markdown("---")
+                
+                st.subheader("📊 1. Бюджеты проектов (чистая экономика)")
+                df_proj = pd.DataFrame(project_rows).drop(columns=["raw_total"])
+                st.dataframe(df_proj, use_container_width=True, hide_index=True)
+                
+                with st.expander("🔍 Карточка детального просмотра проекта (состав команды и обоснования)", expanded=True):
+                    selected_detail_proj = st.selectbox("Выберите проект для изучения:", list(project_details_map.keys()))
+                    if selected_detail_proj:
+                        p_info = project_details_map[selected_detail_proj]
+                        cd1, cd2 = st.columns(2)
+                        with cd1:
+                            st.markdown(f"**Ответственные менеджеры:**")
+                            for pm_i in p_info["all_pms"]:
+                                tag = " (ведущий)" if not pm_i.get("is_second", False) else " (со-менеджер / выезд)"
+                                st.markdown(f"• **{pm_i['name']}{tag}:** ставка {pm_i['base']} ₽ ({pm_i['desc']})")
+                                if pm_i.get('goals_bonus', 0) > 0:
+                                    st.markdown(f"  └ Доплата за цели: +{pm_i['goals_bonus']} ₽")
+                                if pm_i.get('savings_bonus', 0) > 0:
+                                    st.markdown(f"  └ Бонус за экономию: +{pm_i['savings_bonus']} ₽")
+                            
+                            just_text = "; \n".join(p_info["justifications"]) if p_info["justifications"] else "—"
+                            st.markdown(f"**Обоснования бонусов и целей:**\n\n{just_text}")
+                        with cd2:
+                            st.markdown("**Команда подрядчиков на проекте:**")
+                            if p_info["subs"]:
+                                for s in p_info["subs"]:
+                                    st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
+                                
+                                unique_roles = set(s['role'] for s in p_info['subs'])
+                                planned_subs = sum(ROLE_BASE_RATES.get(r, 0) for r in unique_roles)
+                                actual_subs = sum(s['sum'] for s in p_info['subs'])
+                                
+                                st.markdown("---")
+                                st.markdown(f"**Заложено по смете ролей подрядчиков:** **{planned_subs:,.0f} ₽**".replace(",", " "))
+                                
+                                if actual_subs > planned_subs:
+                                    over_amt = actual_subs - planned_subs
+                                    st.markdown(
+                                        f"**Фактически за месяц:** <span style='color: #FF4B4B; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽ ⚠️ (Превышение лимита на {over_amt:,.0f} ₽)</span>".replace(",", " "), 
+                                        unsafe_allow_html=True
+                                    )
                                 else:
-                                    st.markdown("— Подрядчики не привлекались")
+                                    saved_amt = planned_subs - actual_subs
+                                    status_label = f" (экономия {saved_amt:,.0f} ₽)" if saved_amt > 0 else " (в рамках сметы)"
+                                    st.markdown(
+                                        f"**Фактически за месяц:** <span style='color: #D8FD81; font-weight: 800; font-size: 16px;'>{actual_subs:,.0f} ₽</span> <span style='color: #A6A6A6;'>{status_label}</span>".replace(",", " "), 
+                                        unsafe_allow_html=True
+                                    )
+                            else:
+                                st.markdown("— Подрядчики не привлекались")
 
-                    if extra_tasks_records:
-                        st.markdown("---")
-                        st.subheader("✨ Разовые поручения / Иные задачи")
-                        st.markdown("Задачи, не входящие в стандартные сметы проектов (личные поручения, внутренние задачи агентства).")
-                        st.dataframe(pd.DataFrame(extra_tasks_records), use_container_width=True, hide_index=True)
-
+                if extra_tasks_records:
                     st.markdown("---")
-                    st.subheader("💰 2. Таблица к выплате на человека")
-                    st.markdown("Итоговая сумма к перечислению каждому специалисту с детализацией по проектам и разовым задачам.")
+                    st.subheader("✨ Разовые поручения / Иные задачи")
+                    st.dataframe(pd.DataFrame(extra_tasks_records), use_container_width=True, hide_index=True)
+
+                st.markdown("---")
+                st.subheader("💰 2. Таблица к выплате на человека")
+                
+                summary_contractors = []
+                for c_name, data in contractor_payouts.items():
+                    proj_total = sum(t["sum"] for t in data["projects"])
+                    final_total = proj_total + data["extras"]
                     
-                    summary_contractors = []
-                    for c_name, data in contractor_payouts.items():
-                        proj_total = sum(t["sum"] for t in data["projects"])
-                        final_total = proj_total + data["extras"]
+                    proj_names_unique = list(dict.fromkeys([t['project'] for t in data['projects']]))
+                    proj_names_str = ", ".join(proj_names_unique)
+                    if data["extras"] > 0:
+                        proj_names_str += (" + Разовые задачи" if proj_names_str else "Разовые задачи")
                         
-                        lines = [f"{t['project']} ({t['role']}: {t['sum']} ₽)" for t in data["projects"]]
-                        if data["extras"] > 0:
-                            lines.append(f"Иные задачи: {data['extras']} ₽")
-                            
-                        summary_contractors.append({
-                            "Специалист": c_name,
-                            "Итого к выплате": f"{final_total:,.0f} ₽".replace(",", " "),
-                            "Проектов": len(data["projects"]),
-                            "Детализация выплат": " | ".join(lines),
-                            "raw_total": final_total,
-                            "raw_data": data
-                        })
-                    
-                    df_contractors = pd.DataFrame(summary_contractors).sort_values(by="raw_total", ascending=False)
-                    st.dataframe(df_contractors.drop(columns=["raw_total", "raw_data"]), use_container_width=True, hide_index=True)
+                    summary_contractors.append({
+                        "Специалист": c_name,
+                        "Итого к выплате": f"{final_total:,.0f} ₽".replace(",", " "),
+                        "Проектов": len(data["projects"]),
+                        "Список проектов": proj_names_str,
+                        "raw_total": final_total,
+                        "raw_data": data
+                    })
+                
+                df_contractors = pd.DataFrame(summary_contractors).sort_values(by="raw_total", ascending=False)
+                st.dataframe(df_contractors[["Специалист", "Итого к выплате", "Проектов", "Список проектов"]], use_container_width=True, hide_index=True)
 
-                    with st.expander("💳 Расчетный лист по специалисту перед переводом", expanded=True):
-                        c_names_list = [row["Специалист"] for row in summary_contractors]
-                        chosen_c = st.selectbox("Выберите специалиста для проверки:", c_names_list)
-                        if chosen_c:
-                            c_record = next(item for item in summary_contractors if item["Специалист"] == chosen_c)
-                            c_data = c_record["raw_data"]
-                            
-                            st.markdown(f"### Итого к выплате **{chosen_c}**: <span style='color: #D8FD81;'>{c_record['Итого к выплате']}</span>", unsafe_allow_html=True)
-                            
-                            sheet_rows = []
-                            for p_entry in c_data["projects"]:
+                with st.expander("💳 Расчетный лист по специалисту перед переводом", expanded=True):
+                    c_names_list = [row["Специалист"] for row in summary_contractors]
+                    chosen_c = st.selectbox("Выберите специалиста для проверки:", c_names_list)
+                    if chosen_c:
+                        c_record = next(item for item in summary_contractors if item["Специалист"] == chosen_c)
+                        c_data = c_record["raw_data"]
+                        
+                        st.markdown(f"### Итого к выплате **{chosen_c}**: <span style='color: #D8FD81;'>{c_record['Итого к выплате']}</span>", unsafe_allow_html=True)
+                        
+                        sheet_rows = []
+                        for p_entry in c_data["projects"]:
+                            sheet_rows.append({
+                                "Проект / Источник": p_entry["project"],
+                                "Роль": p_entry["role"],
+                                "Примечание / Детали": p_entry["desc"],
+                                "Сумма к выплате": f"{p_entry['sum']:,.0f} ₽".replace(",", " ")
+                            })
+                        
+                        if c_data["extra_items"]:
+                            for ex_item in c_data["extra_items"]:
                                 sheet_rows.append({
-                                    "Проект / Источник": p_entry["project"],
-                                    "Роль": p_entry["role"],
-                                    "Примечание / Детали": p_entry["desc"],
-                                    "Сумма к выплате": f"{p_entry['sum']:,.0f} ₽".replace(",", " ")
+                                    "Проект / Источник": "⚡ Разовые поручения",
+                                    "Роль": "Иные задачи",
+                                    "Примечание / Детали": ex_item["desc"],
+                                    "Сумма к выплате": f"{ex_item['sum']:,.0f} ₽".replace(",", " ")
                                 })
-                            
-                            if c_data["extra_items"]:
-                                for ex_item in c_data["extra_items"]:
-                                    sheet_rows.append({
-                                        "Проект / Источник": "⚡ Разовые поручения",
-                                        "Роль": "Иные задачи",
-                                        "Примечание / Детали": ex_item["desc"],
-                                        "Сумма к выплате": f"{ex_item['sum']:,.0f} ₽".replace(",", " ")
-                                    })
-                            
-                            df_sheet = pd.DataFrame(sheet_rows)
-                            st.dataframe(df_sheet, use_container_width=True, hide_index=True)
+                        
+                        df_sheet = pd.DataFrame(sheet_rows)
+                        st.dataframe(df_sheet, use_container_width=True, hide_index=True)
 
-        except Exception as e: st.error(f"Ошибка загрузки: {e}")
-    elif password != "": st.error("Неверный пароль.")
+    except Exception as e:
+        st.error(f"Ошибка загрузки: {e}")
