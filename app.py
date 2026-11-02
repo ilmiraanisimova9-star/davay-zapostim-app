@@ -287,7 +287,7 @@ def populate_form_from_records(rows_df, manager_name):
 
         sav_d = parse_savings_data(d_str)
         st.session_state[f"sav_bonus_{p_item}"] = sav_d["pm_bonus"]
-        s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:', d_str)
+        s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?);\s*\(Экономия:', d_str)
         if s_desc_m:
             st.session_state[f"sav_desc_{p_item}"] = s_desc_m.group(1).strip()
 
@@ -541,7 +541,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
                 if pm2_name:
                     extra_info_list.append(f"РОЛЬ [Проектный менеджер (2-й ПМ)]: Исполнитель: {pm2_name}, Данные - {safe_pm2_per}, Сумма - {safe_pm2_amt} ₽")
-                    total_subs_payout_calc += safe_pm2_amt
                     client_summary_collector.append({
                         "Проект / Задача": proj,
                         "Кому выплата (ФИО)": pm2_name,
@@ -549,6 +548,10 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         "Детали / Объем": safe_pm2_per,
                         "Сумма": f"{safe_pm2_amt:,.0f} ₽".replace(",", " ")
                     })
+                    if manager_name and pm2_name == manager_name:
+                        total_pm_payout_calc += safe_pm2_amt
+                    else:
+                        total_subs_payout_calc += safe_pm2_amt
 
             combined_pm_base = safe_pm_amt + safe_pm2_amt
             if not is_content_package and combined_pm_base > 8500:
@@ -677,7 +680,10 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         "Детали / Объем": safe_p_period,
                         "Сумма": f"{safe_amt:,.0f} ₽".replace(",", " ")
                     })
-                    total_subs_payout_calc += safe_amt
+                    if manager_name and p == manager_name:
+                        total_pm_payout_calc += safe_amt
+                    else:
+                        total_subs_payout_calc += safe_amt
                 
                 total_subs_actual += current_sum
 
@@ -889,7 +895,6 @@ elif page == "🔒 Дашборд руководителя":
                 
                 c_filter1, c_filter2 = st.columns(2)
                 with c_filter1:
-                    # Поле пустое по умолчанию
                     selected_period = st.selectbox(
                         "Отчетный период:", 
                         sorted_periods if sorted_periods else periods,
