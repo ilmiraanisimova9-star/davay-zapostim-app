@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import re
 import io
+import html
 from datetime import datetime
 
 st.set_page_config(
@@ -60,6 +61,13 @@ brand_css = """
     .stAlert { background-color: #262626 !important; border-radius: 10px !important; border: 1px solid #404040 !important; }
     div[data-testid="stAlert"] * { color: #FFFFFF !important; }
     [data-testid="stMetricValue"] { color: #D8FD81 !important; font-weight: 800 !important; }
+
+    .wrap-table-box { overflow-x: auto; border: 1px solid #404040; border-radius: 10px; margin-bottom: 12px; }
+    .wrap-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .wrap-table th { background: #262626; color: #B795E8; text-align: left; padding: 10px 12px; font-weight: 700; white-space: nowrap; }
+    .wrap-table td { color: #F7F7F7; padding: 10px 12px; border-top: 1px solid #333333; vertical-align: top; white-space: normal; word-break: break-word; }
+    .wrap-table td.wide { min-width: 260px; }
+    .wrap-table tr:hover td { background: #222222; }
 </style>
 """
 st.markdown(brand_css, unsafe_allow_html=True)
@@ -189,6 +197,25 @@ def period_sort_key(period_str):
         return (int(year), MONTHS_RU.index(month_name) + 1)
     except Exception:
         return (0, 0)
+
+# ---------- Таблица с переносом длинного текста (комментарии видны целиком) ----------
+def render_wrapped_table(df, wide_col=None):
+    if df is None or df.empty:
+        st.markdown("—")
+        return
+    head = "".join(f"<th>{html.escape(str(c))}</th>" for c in df.columns)
+    rows = []
+    for _, r in df.iterrows():
+        cells = []
+        for c in df.columns:
+            cls = " class='wide'" if c == wide_col else ""
+            cells.append(f"<td{cls}>{html.escape(str(r[c]))}</td>")
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+    st.markdown(
+        "<div class='wrap-table-box'><table class='wrap-table'>"
+        f"<thead><tr>{head}</tr></thead><tbody>{''.join(rows)}</tbody></table></div>",
+        unsafe_allow_html=True
+    )
 
 # ---------- Выгрузка ведомости к выплате ----------
 def build_payout_file(summary_contractors, period_label):
@@ -1254,12 +1281,7 @@ elif page == "🔒 Дашборд руководителя":
                     st.markdown("<p style='color: #A6A6A6; font-size: 13px;'>Каждая строка — одно поручение: кто сделал, что именно и сколько стоит.</p>", unsafe_allow_html=True)
 
                     df_extras = pd.DataFrame(extra_tasks_records).sort_values(by="Менеджер", kind="stable")
-                    st.dataframe(
-                        df_extras[["Менеджер", "Задача", "Сумма"]],
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={"Задача": st.column_config.TextColumn("Задача", width="large")}
-                    )
+                    render_wrapped_table(df_extras[["Менеджер", "Задача", "Сумма"]], wide_col="Задача")
 
                     st.markdown("**Итого по менеджерам:**")
                     for mgr_name, grp in df_extras.groupby("Менеджер", sort=True):
@@ -1334,7 +1356,7 @@ elif page == "🔒 Дашборд руководителя":
                                 })
                         
                         df_sheet = pd.DataFrame(sheet_rows)
-                        st.dataframe(df_sheet, use_container_width=True, hide_index=True)
+                        render_wrapped_table(df_sheet, wide_col="Примечание / Детали")
 
     except Exception as e:
         st.error(f"Ошибка загрузки: {e}")
