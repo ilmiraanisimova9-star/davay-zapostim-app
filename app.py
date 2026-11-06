@@ -58,7 +58,7 @@ managers_list = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева", "➕ Ввести другое имя"
 ]
 
-default_team_members = [
+default_specialists = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева",
     "Светлана Кулешова", "Злата Курашова", "Вероника Липина",
     "Юлия Лодыгина", "Ева Гусева", "Дарья Витязева",
@@ -80,7 +80,7 @@ if "selected_projects" not in st.session_state:
     st.session_state["selected_projects"] = []
 
 if "team_pool" not in st.session_state:
-    st.session_state["team_pool"] = list(default_team_members)
+    st.session_state["team_pool"] = list(default_specialists)
 
 if "open_preview_dialog" not in st.session_state:
     st.session_state["open_preview_dialog"] = False
@@ -113,21 +113,38 @@ def add_new_teammate_callback():
         st.session_state["team_pool"].append(val)
     st.session_state["new_sub_team_text"] = ""
 
+# Актуальный список ролей для формы (Контентмейкер и ОРД выведены с ноября 2026)
 subcontractor_roles = [
-    "Контентмейкер", "Дизайнер", "Монтажер", "Видеограф", 
-    "Ведение картографических сервисов", "Комьюнити-менеджмент", "Выставление счёта за ОРД"
+    "Дизайнер", 
+    "Монтажер", 
+    "Видеограф", 
+    "Ведение картографических сервисов", 
+    "Комьюнити-менеджмент"
 ]
 
+# Справочник ставок (архивные роли сохранены для корректного чтения отчетов за июль–октябрь 2026)
 ROLE_BASE_RATES = {
-    "Проектный менеджер": 8500, "Контентмейкер": 5000, "Дизайнер": 3000,
-    "Монтажер": 5000, "Видеограф": 5000, "Региональная управляющая": 10000,
-    "Ведение картографических сервисов": 2500, "Комьюнити-менеджмент": 1500, "Выставление счёта за ОРД": 180
+    "Проектный менеджер": 8500, 
+    "Контентмейкер": 5000, 
+    "Дизайнер": 3000,
+    "Монтажер": 5000, 
+    "Видеограф": 5000, 
+    "Региональная управляющая": 10000,
+    "Ведение картографических сервисов": 2500, 
+    "Комьюнити-менеджмент": 1500, 
+    "Выставление счёта за ОРД": 180
 }
+
+# Метка блока исполнителей в таблице.
+# Новые отчеты пишутся с меткой «ИСПОЛНИТЕЛИ ПО ПРОЕКТУ»,
+# старая метка «ЗАЯВЛЕННАЯ КОМАНДА» по-прежнему читается для архивных отчетов.
+SPECIALISTS_LABEL = "ИСПОЛНИТЕЛИ ПО ПРОЕКТУ"
 
 def parse_extra_tasks_amount(extra_tasks_str):
     if not extra_tasks_str or not isinstance(extra_tasks_str, str): return 0
-    matches = re.findall(r'—\s*(\d+)\s*₽', extra_tasks_str)
-    return sum(int(m) for m in matches)
+    # Понимает и «— 1000₽», и «— 1 000 ₽»
+    matches = re.findall(r'—\s*(\d[\d\s]*?)\s*₽', extra_tasks_str)
+    return sum(int(re.sub(r'\s', '', m)) for m in matches)
 
 def parse_all_pm_entries(details_str, default_manager_name):
     pm_list = []
@@ -211,11 +228,12 @@ def parse_savings_data(details_str):
 
 def parse_subcontractors_from_details(details_str):
     sub_data = []
-    team_match = re.search(r'ЗАЯВЛЕННАЯ КОМАНДА:\s*\[(.*?)\]', details_str)
-    if not team_match:
+    # Читает и новую метку, и старую (для архивных отчетов)
+    spec_match = re.search(r'(?:ИСПОЛНИТЕЛИ ПО ПРОЕКТУ|ЗАЯВЛЕННАЯ КОМАНДА):\s*\[(.*?)\]', details_str)
+    if not spec_match:
         return sub_data
     
-    content = team_match.group(1)
+    content = spec_match.group(1)
     role_blocks = content.split("; ")
     for block in role_blocks:
         if ":" not in block: continue
@@ -265,7 +283,8 @@ def populate_form_from_records(rows_df, manager_name):
             st.session_state[f"has_pm2_{p_item}"] = False
             
         subs_data = parse_subcontractors_from_details(d_str)
-        roles_found = list(dict.fromkeys([s["role"] for s in subs_data]))
+        # Архивные роли (Контентмейкер, ОРД) в новую форму не подставляем — их больше нет в списке
+        roles_found = [r for r in dict.fromkeys([s["role"] for s in subs_data]) if r in subcontractor_roles]
         st.session_state[f"sub_roles_{p_item}"] = roles_found
         
         for role_name in roles_found:
@@ -287,7 +306,7 @@ def populate_form_from_records(rows_df, manager_name):
 
         sav_d = parse_savings_data(d_str)
         st.session_state[f"sav_bonus_{p_item}"] = sav_d["pm_bonus"]
-        s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?);\s*\(Экономия:', d_str)
+        s_desc_m = re.search(r'ОПТИМИЗАЦИЯ:\s*(.*?)\s*\(Экономия:', d_str)
         if s_desc_m:
             st.session_state[f"sav_desc_{p_item}"] = s_desc_m.group(1).strip()
 
@@ -307,7 +326,7 @@ def preview_dialog_window():
     with c_tot1:
         st.markdown(f"#### Итого к выплате вам: <span style='color: #D8FD81;'>{p_data['total_pm']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
     with c_tot2:
-        st.markdown(f"#### Итого выплаты команде/со-менеджерам: <span style='color: #B795E8;'>{p_data['total_subs']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
+        st.markdown(f"#### Итого выплаты специалистам/со-менеджерам: <span style='color: #B795E8;'>{p_data['total_subs']:,.0f} ₽</span>".replace(",", " "), unsafe_allow_html=True)
         
     st.markdown("---")
     c_act1, c_act2 = st.columns([1, 2])
@@ -335,6 +354,11 @@ def preview_dialog_window():
 if page == "📝 Сдача отчетов (Менеджеры)":
     st.title("⚡ ДАВАЙ ЗАПОСТИМ! — Сдача отчета менеджера")
 
+    # Период из восстановленного черновика подставляем ДО отрисовки поля выбора периода,
+    # иначе Streamlit не дает его изменить.
+    if "_pending_period" in st.session_state:
+        st.session_state["f_period"] = st.session_state.pop("_pending_period")
+
     if st.session_state.get("report_submitted_success", False):
         st.success("🎉 **Отчет успешно сохранен в системе!** Если за этот месяц уже был отчет, данные были аккуратно обновлены без задвоений.")
         st.balloons()
@@ -344,7 +368,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             st.rerun()
         st.stop()
 
-    st.markdown("Заполните финансовый отчет по вашим проектам и задействованным подрядчикам.")
+    st.markdown("Заполните финансовый отчет по вашим проектам и задействованным специалистам.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -363,7 +387,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         else:
             manager_name = selected_manager
     with col2:
-        p_periods = ["Июль 2026", "Август 2026", "Сентябрь 2026", "Октябрь 2026"]
+        p_periods = ["Июль 2026", "Август 2026", "Сентябрь 2026", "Октябрь 2026", "Ноябрь 2026"]
         p_index = None
         if "f_period" in st.session_state and st.session_state["f_period"] in p_periods:
             p_index = p_periods.index(st.session_state["f_period"])
@@ -388,8 +412,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                                 if st.button("📥 Восстановить черновик"):
                                     matched_draft_rows = m_drafts[m_drafts["Период"] == target_draft_p]
                                     populate_form_from_records(matched_draft_rows, manager_name)
-                                    st.session_state["f_period"] = target_draft_p
-                                    st.success("Черновик успешно восстановлен!")
+                                    st.session_state["_pending_period"] = target_draft_p
                                     st.rerun()
         except Exception:
             pass
@@ -415,7 +438,6 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                                     if st.button("📥 Загрузить в форму"):
                                         target_rows = m_reports[m_reports["Период"] == src_period]
                                         populate_form_from_records(target_rows, manager_name)
-                                        st.success(f"Данные за **{src_period}** успешно подтянуты в форму! При необходимости измените месяц и цифры.")
                                         st.rerun()
         except Exception:
             pass
@@ -444,18 +466,18 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     )
     st.session_state["selected_projects"] = chosen_projects
 
-    with st.expander("👤 Добавить нового исполнителя/подрядчика в общий список команды"):
+    with st.expander("👤 Добавить нового исполнителя в общий список специалистов"):
         c_sub1, c_sub2 = st.columns([3, 1])
         with c_sub1:
             st.text_input(
-                "Имя и Фамилия подрядчика (как в паспорте)",
+                "Имя и Фамилия исполнителя (как в паспорте)",
                 placeholder="Например: Алина Соколова",
-                help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Подрядчик добавится в выпадающий список для всех ролей.",
+                help="Пишите строго: сначала Имя, затем Фамилия (как в паспорте). Специалист добавится в выпадающий список для всех ролей.",
                 key="new_sub_team_text"
             )
         with c_sub2:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.button("➕ Добавить в команду", on_click=add_new_teammate_callback)
+            st.button("➕ Добавить в список", on_click=add_new_teammate_callback)
 
     task_data = {}
     validation_errors = []
@@ -463,7 +485,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
     total_pm_payout_calc = 0
     total_subs_payout_calc = 0
 
-    available_team = list(st.session_state["team_pool"]) + ["➕ Ввести разово новое имя"]
+    available_specialists = list(st.session_state["team_pool"]) + ["➕ Ввести разово новое имя"]
 
     if chosen_projects:
         for proj in chosen_projects:
@@ -508,7 +530,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 with col_pm2_a:
                     chosen_pm2 = st.selectbox(
                         "Выберите второго менеджера", 
-                        available_team, 
+                        available_specialists, 
                         index=None, 
                         placeholder="Выберите специалиста...", 
                         key=f"pm2_sel_{proj}"
@@ -592,10 +614,10 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 extra_info_list.append(f"ЦЕЛИ: {safe_goals_desc}; ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ: {safe_goals_bonus} ₽")
 
             st.markdown("---")
-            st.markdown("👥 **Укажите подрядчиков проекта и суммы к выплате:**")
-            chosen_sub_roles = st.multiselect("Какие роли подрядчиков были на проекте?", subcontractor_roles, placeholder="Выберите роли из списка...", key=f"sub_roles_{proj}")
+            st.markdown("👥 **Укажите исполнителей по проекту и суммы к выплате:**")
+            chosen_sub_roles = st.multiselect("Какие роли исполнителей были на проекте?", subcontractor_roles, placeholder="Выберите роли из списка...", key=f"sub_roles_{proj}")
             
-            team_declared = []
+            specialists_declared = []
             total_subs_limit = 0
             total_subs_actual = 0
 
@@ -604,7 +626,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 
                 chosen_p1 = st.selectbox(
                     f"Исполнитель на роль «{s_role}»", 
-                    available_team, 
+                    available_specialists, 
                     index=None, 
                     placeholder="Выберите исполнителя...", 
                     key=f"p1_sel_{s_role}_{proj}"
@@ -625,7 +647,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 if has_second:
                     chosen_p2 = st.selectbox(
                         f"Второй исполнитель на роль «{s_role}»", 
-                        available_team, 
+                        available_specialists, 
                         index=None, 
                         placeholder="Выберите второго исполнителя...", 
                         key=f"p2_sel_{s_role}_{proj}"
@@ -693,16 +715,16 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     validation_errors.append(err_sub)
                 
                 if people_details:
-                    team_declared.append(f"{s_role}: {', '.join(people_details)}")
+                    specialists_declared.append(f"{s_role}: {', '.join(people_details)}")
             
-            if team_declared:
-                extra_info_list.append(f"ЗАЯВЛЕННАЯ КОМАНДА: [{'; '.join(team_declared)}]")
+            if specialists_declared:
+                extra_info_list.append(f"{SPECIALISTS_LABEL}: [{'; '.join(specialists_declared)}]")
 
             real_savings = max(0, total_subs_limit - total_subs_actual) if not is_content_package else 0
             max_allowed_bonus = real_savings // 2
 
             st.markdown("---")
-            st.markdown("**💡 Оптимизация бюджета подрядчиков:**")
+            st.markdown("**💡 Оптимизация бюджета исполнителей:**")
             sav_col1, sav_col2, sav_col3 = st.columns([3, 2, 2])
             with sav_col1:
                 savings_desc = st.text_input(
@@ -719,7 +741,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     value=None, 
                     step=250, 
                     placeholder="0",
-                    help=f"Максимум 50% от реальной экономии по подрядчикам: {max_allowed_bonus} ₽",
+                    help=f"Максимум 50% от реальной экономии по исполнителям: {max_allowed_bonus} ₽",
                     key=f"sav_bonus_{proj}"
                 )
             
@@ -727,7 +749,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             safe_savings_bonus = raw_savings_bonus if raw_savings_bonus is not None else 0
 
             if safe_savings_bonus > 0 and real_savings == 0:
-                err_sav = f"Проект «{proj}»: нельзя начислить бонус за экономию, так как по подрядчикам выставлены максимальные ставки (экономия 0 ₽)."
+                err_sav = f"Проект «{proj}»: нельзя начислить бонус за экономию, так как по исполнителям выставлены максимальные ставки (экономия 0 ₽)."
                 st.error(f"⚠️ {err_sav}")
                 validation_errors.append(err_sav)
             elif safe_savings_bonus > max_allowed_bonus:
@@ -762,25 +784,28 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             }
             st.markdown("---")
 
-    st.subheader("✨ Иные задачи, не учтённые выше")
-    has_extra = st.checkbox("Были ли иные задачи за отчетный период?", key="has_extra_tasks_toggle")
+    st.subheader("✨ Внутренние поручения агентства (НЕ относящиеся к клиентам)")
+    st.markdown("<p style='color: #A6A6A6; font-size: 13px;'>Сюда вносятся ТОЛЬКО задачи самого агентства (нейроботы, шаблоны, брендбук и соцсети агентства) и разовые личные поручения руководителя. Работы по клиентским проектам (например, комьюнити-менеджмент) указываются в карточке соответствующего проекта выше.</p>", unsafe_allow_html=True)
+    has_extra = st.checkbox("Были ли внутренние поручения агентства за период?", key="has_extra_tasks_toggle")
     extra_task_desc = ""
     extra_tasks_sum = 0
     if has_extra:
-        task_count = st.number_input("Сколько иных задач вы согласовали?", min_value=1, max_value=10, value=1, key="extra_task_count")
+        task_count = st.number_input("Сколько задач вы согласовали?", min_value=1, max_value=10, value=1, key="extra_task_count")
         tasks_list = []
         for i in range(int(task_count)):
             col_ex1, col_ex2 = st.columns([3, 1])
-            with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука", key=f"task_txt_{i}")
+            with col_ex1: task_text = st.text_input(f"Описание задачи №{i+1}", placeholder="Например: разработка брендбука агентства", key=f"task_txt_{i}")
             with col_ex2: task_price = st.text_input(f"Вознаграждение (₽)", placeholder="100", key=f"task_prc_{i}")
             if task_text:
-                num_p = int(re.sub(r'\D', '', task_price)) if re.sub(r'\D', '', task_price) else 0
+                digits_only = re.sub(r'\D', '', task_price or "")
+                num_p = int(digits_only) if digits_only else 0
                 extra_tasks_sum += num_p
-                price_str = f" — {task_price}₽" if task_price and task_price.strip() else " — цена не указана"
+                # Сумму пишем в таблицу без пробелов, чтобы дашборд всегда её правильно считывал
+                price_str = f" — {num_p}₽" if num_p > 0 else " — цена не указана"
                 tasks_list.append(f"• {task_text}{price_str}")
                 
                 client_summary_collector.append({
-                    "Проект / Задача": "⚡ Иные задачи",
+                    "Проект / Задача": "⚡ Поручения агентства",
                     "Кому выплата (ФИО)": manager_name if manager_name else "ПМ",
                     "Роль": "Разовое поручение",
                     "Детали / Объем": task_text,
@@ -890,7 +915,7 @@ elif page == "🔒 Дашборд руководителя":
             df = pd.DataFrame(res.json())
             if not df.empty and "Исполнитель" in df.columns:
                 periods = df["Период"].dropna().unique().tolist()
-                ordered_default = ["Октябрь 2026", "Сентябрь 2026", "Август 2026", "Июль 2026"]
+                ordered_default = ["Ноябрь 2026", "Октябрь 2026", "Сентябрь 2026", "Август 2026", "Июль 2026"]
                 sorted_periods = [p for p in ordered_default if p in periods] + [p for p in periods if p not in ordered_default]
                 
                 c_filter1, c_filter2 = st.columns(2)
@@ -978,13 +1003,15 @@ elif page == "🔒 Дашборд руководителя":
                     
                     extra_sum = parse_extra_tasks_amount(p_extra)
                     if extra_sum > 0:
-                        clean_task_name = re.sub(r'\s*—\s*\d+\s*₽?', '', p_extra).strip()
+                        clean_task_name = re.sub(r'\s*—\s*(?:\d[\d\s]*?\s*₽|цена не указана)', '', p_extra).strip()
                         clean_task_name = clean_task_name.lstrip("•").strip()
                         
                         extra_key = (p_manager, clean_task_name, extra_sum)
                         if extra_key not in seen_extras:
                             seen_extras.add(extra_key)
                             grand_total_extras += extra_sum
+                            if p_manager not in contractor_payouts:
+                                contractor_payouts[p_manager] = {"projects": [], "extras": 0, "extra_items": []}
                             contractor_payouts[p_manager]["extras"] += extra_sum
                             contractor_payouts[p_manager]["extra_items"].append({
                                 "desc": clean_task_name,
@@ -999,12 +1026,12 @@ elif page == "🔒 Дашборд руководителя":
                     project_rows.append({
                         "Проект": p_name,
                         "Ведущий ПМ": p_manager,
-                        "ПМ: База": f"{sum(p['base'] for p in all_pms):,.0f} ₽",
-                        "ПМ: Цели": f"{lead_pm['goals_bonus']:,.0f} ₽" if lead_pm['goals_bonus'] > 0 else "—",
-                        "ПМ: Бонус за экономию": f"{lead_pm['savings_bonus']:,.0f} ₽" if lead_pm['savings_bonus'] > 0 else "—",
-                        "Выплаты подрядчикам": f"{subs_sum:,.0f} ₽",
-                        "Итого расход на проект": f"{project_clean_total:,.0f} ₽",
-                        "Сэкономлено агентству": f"{sav_info['saved_agency']:,.0f} ₽" if sav_info['saved_agency'] > 0 else "0 ₽",
+                        "Управление: База": f"{sum(p['base'] for p in all_pms):,.0f} ₽".replace(",", " "),
+                        "Управление: Цели": f"{lead_pm['goals_bonus']:,.0f} ₽".replace(",", " ") if lead_pm['goals_bonus'] > 0 else "—",
+                        "Управление: Бонус экономии": f"{lead_pm['savings_bonus']:,.0f} ₽".replace(",", " ") if lead_pm['savings_bonus'] > 0 else "—",
+                        "Исполнители по проекту": f"{subs_sum:,.0f} ₽".replace(",", " "),
+                        "Итого затрат на проект": f"{project_clean_total:,.0f} ₽".replace(",", " "),
+                        "Сэкономлено агентству": f"{sav_info['saved_agency']:,.0f} ₽".replace(",", " ") if sav_info['saved_agency'] > 0 else "0 ₽",
                         "raw_total": project_clean_total
                     })
                     
@@ -1029,25 +1056,40 @@ elif page == "🔒 Дашборд руководителя":
                             project_details_map[p_name]["justifications"].append(sav_info["justification"])
                         project_details_map[p_name]["clean_total"] += project_clean_total
 
+                # Все затраты агентства за месяц: все проекты + все внутренние поручения
+                total_all_expenses = grand_total_projects + grand_total_extras
+
                 col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-                col_m1.metric("Проектов в выборке", len(filtered_df))
+                col_m1.metric("Проектов в выборке", filtered_df["Проект"].nunique())
                 col_m2.metric("Специалистов к выплате", f"{len(contractor_payouts)} чел.")
-                col_m3.metric("Бюджет проектов (факт)", f"{grand_total_projects:,.0f} ₽".replace(",", " "))
+                col_m3.metric(
+                    "Общие затраты за месяц (факт)", 
+                    f"{total_all_expenses:,.0f} ₽".replace(",", " "),
+                    help=f"Проекты: {grand_total_projects:,.0f} ₽ + внутренние поручения агентства: {grand_total_extras:,.0f} ₽".replace(",", " ")
+                )
                 col_m4.metric("Сэкономлено агентству", f"{grand_total_saved:,.0f} ₽".replace(",", " "))
                 
                 st.markdown("---")
                 
-                st.subheader("📊 1. Бюджеты проектов (чистая экономика)")
+                st.subheader("📊 1. Затраты на проекты")
                 df_proj = pd.DataFrame(project_rows).drop(columns=["raw_total"])
                 st.dataframe(df_proj, use_container_width=True, hide_index=True)
                 
-                with st.expander("🔍 Карточка детального просмотра проекта (состав команды и обоснования)", expanded=True):
+                with st.expander("🔍 Карточка проекта: затраты и исполнители", expanded=True):
                     selected_detail_proj = st.selectbox("Выберите проект для изучения:", list(project_details_map.keys()))
                     if selected_detail_proj:
                         p_info = project_details_map[selected_detail_proj]
+                        
+                        st.markdown(
+                            f"### Итого затрат на проект **{selected_detail_proj}**: <span style='color: #D8FD81;'>{p_info['clean_total']:,.0f} ₽</span>".replace(",", " "), 
+                            unsafe_allow_html=True
+                        )
+                        st.markdown("<p style='color: #A6A6A6; font-size: 13px;'>Управление + исполнение, по всем менеджерам, отчитавшимся по проекту.</p>", unsafe_allow_html=True)
+                        st.markdown("---")
+
                         cd1, cd2 = st.columns(2)
                         with cd1:
-                            st.markdown(f"**Ответственные менеджеры:**")
+                            st.markdown(f"**Управление проектом:**")
                             for pm_i in p_info["all_pms"]:
                                 tag = " (ведущий)" if not pm_i.get("is_second", False) else " (со-менеджер / выезд)"
                                 st.markdown(f"• **{pm_i['name']}{tag}:** ставка {pm_i['base']} ₽ ({pm_i['desc']})")
@@ -1059,7 +1101,7 @@ elif page == "🔒 Дашборд руководителя":
                             just_text = "; \n".join(p_info["justifications"]) if p_info["justifications"] else "—"
                             st.markdown(f"**Обоснования бонусов и целей:**\n\n{just_text}")
                         with cd2:
-                            st.markdown("**Команда подрядчиков на проекте:**")
+                            st.markdown("**Исполнители по проекту:**")
                             if p_info["subs"]:
                                 for s in p_info["subs"]:
                                     st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
@@ -1069,7 +1111,7 @@ elif page == "🔒 Дашборд руководителя":
                                 actual_subs = sum(s['sum'] for s in p_info['subs'])
                                 
                                 st.markdown("---")
-                                st.markdown(f"**Заложено по смете ролей подрядчиков:** **{planned_subs:,.0f} ₽**".replace(",", " "))
+                                st.markdown(f"**Заложено по смете ролей исполнителей:** **{planned_subs:,.0f} ₽**".replace(",", " "))
                                 
                                 if actual_subs > planned_subs:
                                     over_amt = actual_subs - planned_subs
@@ -1085,11 +1127,11 @@ elif page == "🔒 Дашборд руководителя":
                                         unsafe_allow_html=True
                                     )
                             else:
-                                st.markdown("— Подрядчики не привлекались")
+                                st.markdown("— Исполнители не привлекались")
 
                 if extra_tasks_records:
                     st.markdown("---")
-                    st.subheader("✨ Разовые поручения / Иные задачи")
+                    st.subheader("✨ Внутренние поручения агентства")
                     st.dataframe(pd.DataFrame(extra_tasks_records), use_container_width=True, hide_index=True)
 
                 st.markdown("---")
@@ -1103,7 +1145,7 @@ elif page == "🔒 Дашборд руководителя":
                     proj_names_unique = list(dict.fromkeys([t['project'] for t in data['projects']]))
                     proj_names_str = ", ".join(proj_names_unique)
                     if data["extras"] > 0:
-                        proj_names_str += (" + Разовые задачи" if proj_names_str else "Разовые задачи")
+                        proj_names_str += (" + Поручения агентства" if proj_names_str else "Поручения агентства")
                         
                     summary_contractors.append({
                         "Специалист": c_name,
@@ -1138,8 +1180,8 @@ elif page == "🔒 Дашборд руководителя":
                         if c_data["extra_items"]:
                             for ex_item in c_data["extra_items"]:
                                 sheet_rows.append({
-                                    "Проект / Источник": "⚡ Разовые поручения",
-                                    "Роль": "Иные задачи",
+                                    "Проект / Источник": "⚡ Поручения агентства",
+                                    "Роль": "Внутренняя задача",
                                     "Примечание / Детали": ex_item["desc"],
                                     "Сумма к выплате": f"{ex_item['sum']:,.0f} ₽".replace(",", " ")
                                 })
