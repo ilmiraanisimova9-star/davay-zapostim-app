@@ -3,6 +3,7 @@ import requests
 import json
 import pandas as pd
 import re
+import io
 from datetime import datetime
 
 st.set_page_config(
@@ -11,7 +12,19 @@ st.set_page_config(
     layout="wide"
 )
 
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbz4-aWJrZ5hS7rjejcPUVnkhtaMnFhsNI50si90q_nathh74qIogvirpXwK_96lKutP/exec"
+# Секретные настройки хранятся НЕ в коде, а в Streamlit Cloud: Settings → Secrets
+def _get_secret(name):
+    try:
+        return st.secrets[name]
+    except Exception:
+        return None
+
+WEBHOOK_URL = _get_secret("WEBHOOK_URL")
+ADMIN_PASSWORD = _get_secret("ADMIN_PASSWORD")
+
+if not WEBHOOK_URL or not ADMIN_PASSWORD:
+    st.error("⚙️ Не заданы секретные настройки WEBHOOK_URL и ADMIN_PASSWORD. Добавьте их в Streamlit Cloud: Settings → Secrets.")
+    st.stop()
 
 brand_css = """
 <style>
@@ -131,20 +144,123 @@ ROLE_BASE_RATES = {
     "Видеограф": 5000, 
     "Региональная управляющая": 10000,
     "Ведение картографических сервисов": 2500, 
-    "Комьюнити-менеджмент": 1500, 
+    "Комьюнити-менеджмент": 2000,
     "Выставление счёта за ОРД": 180
 }
+
+# С октября 2026 ставка комьюнити-менеджмента выросла с 1 500 до 2 000 ₽.
+# Для отчетов за июль–сентябрь 2026 продолжает действовать старая ставка.
+OLD_RATE_PERIODS = ["Июль 2026", "Август 2026", "Сентябрь 2026"]
+OLD_ROLE_RATES = {"Комьюнити-менеджмент": 1500}
+
+def get_role_rate(role, period=None):
+    if period in OLD_RATE_PERIODS and role in OLD_ROLE_RATES:
+        return OLD_ROLE_RATES[role]
+    return ROLE_BASE_RATES.get(role, 0)
+
+# ---------- Загрузка данных из таблицы (с запоминанием на 60 секунд) ----------
+@st.cache_data(ttl=60, show_spinner=False)
+def fetch_sheet(sheet=None):
+    params = {"sheet": sheet} if sheet else None
+    res = requests.get(WEBHOOK_URL, params=params, timeout=15)
+    res.raise_for_status()
+    data = res.json()
+    return data if isinstance(data, list) else []
+
+# ---------- Отчетные периоды: новые месяцы добавляются автоматически ----------
+MONTHS_RU = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь",
+             "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"]
+FIRST_PERIOD = (2026, 7)  # Июль 2026 — первый месяц работы системы
+
+def build_periods():
+    now = datetime.now()
+    y, m = FIRST_PERIOD
+    result = []
+    while (y, m) <= (now.year, now.month):
+        result.append(f"{MONTHS_RU[m - 1]} {y}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return result
+
+def period_sort_key(period_str):
+    try:
+        month_name, year = str(period_str).split()
+        return (int(year), MONTHS_RU.index(month_name) + 1)
+    except Exception:
+        return (0, 0)
+
+# ---------- Выгрузка ведомости к выплате ----------
+def build_payout_file(summary_contractors, period_label):
+    summary_rows, detail_rows = [], []
+    for c in sorted(summary_contractors, key=lambda x: -x["raw_total"]):
+        summary_rows.append({
+            "Специалист": c["Специалист"],
+            "Итого к выплате, ₽": c["raw_total"],
+            "Список проектов": c["Список проектов"]
+        })
+        for p in c["raw_data"]["projects"]:
+            detail_rows.append({
+                "Специалист": c["Специалист"], "Проект / Источник": p["project"],
+                "Роль": p["role"], "Детали": p["desc"], "Сумма, ₽": p["sum"]
+            })
+        for ex in c["raw_data"]["extra_items"]:
+            detail_rows.append({
+                "Специалист": c["Специалист"], "Проект / Источник": "Поручения агентства",
+                "Роль": "Внутренняя задача", "Детали": ex["desc"], "Сумма, ₽": ex["sum"]
+            })
+    df_summary = pd.DataFrame(summary_rows)
+    df_detail = pd.DataFrame(detail_rows)
+    safe_label = str(period_label).replace(" ", "_")
+
+    try:
+        import openpyxl  # noqa: F401
+        buf = io.BytesIO()
+        with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+            df_summary.to_excel(writer, sheet_name="Ведомость", index=False)
+            df_detail.to_excel(writer, sheet_name="Детализация", index=False)
+            for ws in writer.sheets.values():
+                for col in ws.columns:
+                    width = max(len(str(cell.value)) if cell.value is not None else 0 for cell in col)
+                    ws.column_dimensions[col[0].column_letter].width = min(max(12, width + 2), 60)
+        return (buf.getvalue(), f"Ведомость_{safe_label}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    except ImportError:
+        # Если на сервере нет openpyxl — отдаем CSV, который тоже открывается в Excel
+        csv_bytes = df_detail.to_csv(index=False, sep=";").encode("utf-8-sig")
+        return csv_bytes, f"Ведомость_{safe_label}.csv", "text/csv"
 
 # Метка блока исполнителей в таблице.
 # Новые отчеты пишутся с меткой «ИСПОЛНИТЕЛИ ПО ПРОЕКТУ»,
 # старая метка «ЗАЯВЛЕННАЯ КОМАНДА» по-прежнему читается для архивных отчетов.
 SPECIALISTS_LABEL = "ИСПОЛНИТЕЛИ ПО ПРОЕКТУ"
 
+def parse_extra_tasks_list(extra_tasks_str):
+    """Разбирает ячейку «Разовые задачи» на отдельные поручения.
+    Формат в таблице: «• Задача 1 — 500₽; • Задача 2 — 1000₽».
+    Возвращает список: [{"desc": "Задача 1", "sum": 500}, ...]; sum = None, если цена не указана."""
+    if not extra_tasks_str or not isinstance(extra_tasks_str, str):
+        return []
+    text = extra_tasks_str.strip()
+    if not text or text.lower() in ("nan", "none"):
+        return []
+    tasks = []
+    # Делим по «;» перед маркером «•», чтобы не резать текст задачи, если в нём есть «;»
+    for item in re.split(r';\s*(?=•)', text):
+        item = item.strip().lstrip("•").strip()
+        if not item:
+            continue
+        if "—" in item:
+            desc, price_part = item.rsplit("—", 1)
+            digits = re.sub(r'\D', '', price_part)
+            amount = int(digits) if digits else None
+        else:
+            desc, amount = item, None
+        tasks.append({"desc": desc.strip() or "Без описания", "sum": amount})
+    return tasks
+
 def parse_extra_tasks_amount(extra_tasks_str):
-    if not extra_tasks_str or not isinstance(extra_tasks_str, str): return 0
-    # Понимает и «— 1000₽», и «— 1 000 ₽»
-    matches = re.findall(r'—\s*(\d[\d\s]*?)\s*₽', extra_tasks_str)
-    return sum(int(re.sub(r'\s', '', m)) for m in matches)
+    return sum(t["sum"] or 0 for t in parse_extra_tasks_list(extra_tasks_str))
 
 def parse_all_pm_entries(details_str, default_manager_name):
     pm_list = []
@@ -339,6 +455,7 @@ def preview_dialog_window():
             try:
                 res = requests.post(WEBHOOK_URL, json=p_data["payload"])
                 if res.status_code == 200:
+                    st.cache_data.clear()  # чтобы новый отчет сразу был виден в дашборде
                     st.session_state["report_submitted_success"] = True
                     st.session_state["open_preview_dialog"] = False
                     st.session_state["preview_data"] = None
@@ -387,7 +504,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
         else:
             manager_name = selected_manager
     with col2:
-        p_periods = ["Июль 2026", "Август 2026", "Сентябрь 2026", "Октябрь 2026", "Ноябрь 2026"]
+        p_periods = build_periods()
         p_index = None
         if "f_period" in st.session_state and st.session_state["f_period"] in p_periods:
             p_index = p_periods.index(st.session_state["f_period"])
@@ -395,10 +512,9 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 
     if manager_name and manager_name.strip() and manager_name != "➕ Ввести другое имя":
         try:
-            draft_res = requests.get(f"{WEBHOOK_URL}?sheet=Черновики", timeout=5)
-            if draft_res.status_code == 200:
-                draft_data = draft_res.json()
-                if draft_data and isinstance(draft_data, list):
+            draft_data = fetch_sheet("Черновики")
+            if draft_data:
+                if isinstance(draft_data, list):
                     df_drafts = pd.DataFrame(draft_data)
                     if not df_drafts.empty and "Исполнитель" in df_drafts.columns and "Период" in df_drafts.columns:
                         m_drafts = df_drafts[df_drafts["Исполнитель"] == manager_name]
@@ -418,10 +534,9 @@ if page == "📝 Сдача отчетов (Менеджеры)":
             pass
 
         try:
-            db_res = requests.get(WEBHOOK_URL, timeout=5)
-            if db_res.status_code == 200:
-                raw_json = db_res.json()
-                if raw_json and isinstance(raw_json, list):
+            raw_json = fetch_sheet()
+            if raw_json:
+                if isinstance(raw_json, list):
                     all_db = pd.DataFrame(raw_json)
                     if not all_db.empty and "Исполнитель" in all_db.columns and "Период" in all_db.columns:
                         m_reports = all_db[all_db["Исполнитель"] == manager_name]
@@ -662,7 +777,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         )
                         p2_name = clean_person_name(p2_custom)
 
-                role_limit = ROLE_BASE_RATES.get(s_role, 0)
+                role_limit = get_role_rate(s_role, period)
                 active_people = [p for p in [p1_name, p2_name] if p]
                 if active_people:
                     total_subs_limit += role_limit
@@ -841,6 +956,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                 try:
                     res = requests.post(WEBHOOK_URL, json={"action": "save_draft", "data": draft_payload})
                     if res.status_code == 200:
+                        st.cache_data.clear()
                         st.success(f"💾 Черновик для **{manager_name}** ({period}) надежно сохранен в Google Таблице! Он доступен с любого устройства.")
                     else:
                         st.error(f"Ошибка сохранения черновика: {res.status_code}")
@@ -898,7 +1014,7 @@ elif page == "🔒 Дашборд руководителя":
         with c_pwd2:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("🔑 Войти в дашборд"):
-                if entered_pwd.strip() == "оплата подрядчиков26!":
+                if entered_pwd.strip() == str(ADMIN_PASSWORD).strip():
                     st.session_state["is_admin_auth"] = True
                     st.rerun()
                 else:
@@ -909,14 +1025,17 @@ elif page == "🔒 Дашборд руководителя":
             st.session_state["is_admin_auth"] = False
             st.rerun()
 
+    if st.sidebar.button("🔄 Обновить данные"):
+        st.cache_data.clear()
+        st.rerun()
+
     try:
-        res = requests.get(WEBHOOK_URL)
-        if res.status_code == 200:
-            df = pd.DataFrame(res.json())
+        res_data = fetch_sheet()
+        if res_data is not None:
+            df = pd.DataFrame(res_data)
             if not df.empty and "Исполнитель" in df.columns:
                 periods = df["Период"].dropna().unique().tolist()
-                ordered_default = ["Ноябрь 2026", "Октябрь 2026", "Сентябрь 2026", "Август 2026", "Июль 2026"]
-                sorted_periods = [p for p in ordered_default if p in periods] + [p for p in periods if p not in ordered_default]
+                sorted_periods = sorted(periods, key=period_sort_key, reverse=True)
                 
                 c_filter1, c_filter2 = st.columns(2)
                 with c_filter1:
@@ -1001,27 +1120,27 @@ elif page == "🔒 Дашборд руководителя":
                             "sum": s["sum"]
                         })
                     
-                    extra_sum = parse_extra_tasks_amount(p_extra)
-                    if extra_sum > 0:
-                        clean_task_name = re.sub(r'\s*—\s*(?:\d[\d\s]*?\s*₽|цена не указана)', '', p_extra).strip()
-                        clean_task_name = clean_task_name.lstrip("•").strip()
-                        
-                        extra_key = (p_manager, clean_task_name, extra_sum)
-                        if extra_key not in seen_extras:
-                            seen_extras.add(extra_key)
-                            grand_total_extras += extra_sum
-                            if p_manager not in contractor_payouts:
-                                contractor_payouts[p_manager] = {"projects": [], "extras": 0, "extra_items": []}
-                            contractor_payouts[p_manager]["extras"] += extra_sum
-                            contractor_payouts[p_manager]["extra_items"].append({
-                                "desc": clean_task_name,
-                                "sum": extra_sum
-                            })
-                            extra_tasks_records.append({
-                                "Менеджер": p_manager,
-                                "Задача": clean_task_name,
-                                "Сумма": f"{extra_sum:,.0f} ₽".replace(",", " ")
-                            })
+                    # Каждое поручение — отдельной строкой, а не одной общей «простынёй»
+                    for task in parse_extra_tasks_list(p_extra):
+                        extra_key = (p_manager, task["desc"], task["sum"])
+                        if extra_key in seen_extras:
+                            continue
+                        seen_extras.add(extra_key)
+                        task_amt = task["sum"] or 0
+                        grand_total_extras += task_amt
+                        if p_manager not in contractor_payouts:
+                            contractor_payouts[p_manager] = {"projects": [], "extras": 0, "extra_items": []}
+                        contractor_payouts[p_manager]["extras"] += task_amt
+                        contractor_payouts[p_manager]["extra_items"].append({
+                            "desc": task["desc"],
+                            "sum": task_amt
+                        })
+                        extra_tasks_records.append({
+                            "Менеджер": p_manager,
+                            "Задача": task["desc"],
+                            "Сумма": f"{task_amt:,.0f} ₽".replace(",", " ") if task["sum"] is not None else "⚠️ цена не указана",
+                            "raw_sum": task_amt
+                        })
                     
                     project_rows.append({
                         "Проект": p_name,
@@ -1107,7 +1226,7 @@ elif page == "🔒 Дашборд руководителя":
                                     st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
                                 
                                 unique_roles = set(s['role'] for s in p_info['subs'])
-                                planned_subs = sum(ROLE_BASE_RATES.get(r, 0) for r in unique_roles)
+                                planned_subs = sum(get_role_rate(r, selected_period) for r in unique_roles)
                                 actual_subs = sum(s['sum'] for s in p_info['subs'])
                                 
                                 st.markdown("---")
@@ -1132,7 +1251,25 @@ elif page == "🔒 Дашборд руководителя":
                 if extra_tasks_records:
                     st.markdown("---")
                     st.subheader("✨ Внутренние поручения агентства")
-                    st.dataframe(pd.DataFrame(extra_tasks_records), use_container_width=True, hide_index=True)
+                    st.markdown("<p style='color: #A6A6A6; font-size: 13px;'>Каждая строка — одно поручение: кто сделал, что именно и сколько стоит.</p>", unsafe_allow_html=True)
+
+                    df_extras = pd.DataFrame(extra_tasks_records).sort_values(by="Менеджер", kind="stable")
+                    st.dataframe(
+                        df_extras[["Менеджер", "Задача", "Сумма"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={"Задача": st.column_config.TextColumn("Задача", width="large")}
+                    )
+
+                    st.markdown("**Итого по менеджерам:**")
+                    for mgr_name, grp in df_extras.groupby("Менеджер", sort=True):
+                        cnt = len(grp)
+                        mgr_sum = int(grp["raw_sum"].sum())
+                        st.markdown(f"• **{mgr_name}** — {cnt} шт., {mgr_sum:,.0f} ₽".replace(",", " "))
+                    st.markdown(
+                        f"**Всего за поручения:** <span style='color: #D8FD81; font-weight: 800;'>{grand_total_extras:,.0f} ₽</span>".replace(",", " "),
+                        unsafe_allow_html=True
+                    )
 
                 st.markdown("---")
                 st.subheader("💰 2. Таблица к выплате на человека")
@@ -1158,6 +1295,16 @@ elif page == "🔒 Дашборд руководителя":
                 
                 df_contractors = pd.DataFrame(summary_contractors).sort_values(by="raw_total", ascending=False)
                 st.dataframe(df_contractors[["Специалист", "Итого к выплате", "Проектов", "Список проектов"]], use_container_width=True, hide_index=True)
+
+                export_label = selected_period if selected_pm_filter == "Все менеджеры (общая сводка)" else f"{selected_period} {selected_pm_filter}"
+                file_bytes, file_name, file_mime = build_payout_file(summary_contractors, export_label)
+                st.download_button(
+                    "📥 Скачать ведомость к выплате (Excel)",
+                    data=file_bytes,
+                    file_name=file_name,
+                    mime=file_mime,
+                    help="Два листа: итог по каждому человеку и подробная детализация по проектам и поручениям."
+                )
 
                 with st.expander("💳 Расчетный лист по специалисту перед переводом", expanded=True):
                     c_names_list = [row["Специалист"] for row in summary_contractors]
