@@ -291,7 +291,7 @@ def parse_extra_tasks_amount(extra_tasks_str):
 
 def parse_all_pm_entries(details_str, default_manager_name):
     pm_list = []
-    blocks = re.findall(r'РОЛЬ \[Проектный менеджер(?:\s*\(2-й ПМ\))?\]:\s*(?:Исполнитель:\s*([^,;]+),\s*)?Данные\s*-\s*([^,;]+),\s*Сумма\s*-\s*(\d+)\s*₽', details_str)
+    blocks = re.findall(r'РОЛЬ \[Проектный менеджер(?:\s*\(2-й ПМ\))?\]:\s*(?:Исполнитель:\s*([^,;]+),\s*)?Данные\s*-\s*(.*?),\s*Сумма\s*-\s*(\d+)\s*₽', details_str)  # период может содержать запятые
     
     kpi_bonus = 0
     kpi_bonus_match = re.search(r'(?:ВОЗНАГРАЖДЕНИЕ ЗА ЦЕЛИ|ПРЕМИЯ ЗА ЦЕЛИ):\s*(\d+)\s*₽', details_str)
