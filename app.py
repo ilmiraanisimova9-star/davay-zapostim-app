@@ -399,7 +399,26 @@ def populate_form_from_records(rows_df, manager_name):
         if lp not in st.session_state["projects_pool"]:
             st.session_state["projects_pool"].append(lp)
     st.session_state["selected_projects"] = list(loaded_projs)
-    
+
+    # Внутренние поручения агентства: тоже подставляем в форму
+    loaded_tasks = []
+    if "Разовые задачи" in rows_df.columns:
+        for cell in rows_df["Разовые задачи"].tolist():
+            for t in parse_extra_tasks_list(str(cell)):
+                if t not in loaded_tasks:
+                    loaded_tasks.append(t)
+    loaded_tasks = loaded_tasks[:10]
+    st.session_state["has_extra_tasks_toggle"] = bool(loaded_tasks)
+    st.session_state["extra_task_count"] = max(1, len(loaded_tasks))
+    for i in range(10):
+        if i < len(loaded_tasks):
+            st.session_state[f"task_txt_{i}"] = loaded_tasks[i]["desc"]
+            amt = loaded_tasks[i]["sum"]
+            st.session_state[f"task_prc_{i}"] = str(amt) if amt else ""
+        else:
+            st.session_state[f"task_txt_{i}"] = ""
+            st.session_state[f"task_prc_{i}"] = ""
+
     for _, r_data in rows_df.iterrows():
         p_item = str(r_data["Проект"])
         d_str = str(r_data.get("Детали и KPI", ""))
