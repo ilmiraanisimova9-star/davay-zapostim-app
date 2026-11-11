@@ -140,8 +140,12 @@ subcontractor_roles = [
     "Монтажер", 
     "Видеограф", 
     "Ведение картографических сервисов", 
-    "Комьюнити-менеджмент"
+    "Комьюнити-менеджмент",
+    "Упаковка сообщества"
 ]
+
+# Роли со свободной суммой: без лимита, не участвуют в расчете экономии
+FREE_PRICE_ROLES = {"Упаковка сообщества"}
 
 # Справочник ставок (архивные роли сохранены для корректного чтения отчетов за июль–октябрь 2026)
 ROLE_BASE_RATES = {
@@ -823,9 +827,12 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                         )
                         p2_name = clean_person_name(p2_custom)
 
+                is_free_role = s_role in FREE_PRICE_ROLES
                 role_limit = get_role_rate(s_role, period)
+                if is_free_role:
+                    st.caption("Свободная сумма: укажите стоимость упаковки (ВК, Instagram и др.). Лимита нет.")
                 active_people = [p for p in [p1_name, p2_name] if p]
-                if active_people:
+                if active_people and not is_free_role:
                     total_subs_limit += role_limit
                 
                 current_sum = 0
@@ -841,7 +848,7 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                             key=f"pper_{p}_{p_idx}_{s_role}_{proj}"
                         )
                     with colC: 
-                        def_val = role_limit // len(active_people) if len(active_people) > 0 and not is_content_package else None
+                        def_val = role_limit // len(active_people) if len(active_people) > 0 and not is_content_package and not is_free_role else None
                         p_amt = st.number_input(
                             "Сумма ₽", 
                             min_value=0,
@@ -868,9 +875,10 @@ if page == "📝 Сдача отчетов (Менеджеры)":
                     else:
                         total_subs_payout_calc += safe_amt
                 
-                total_subs_actual += current_sum
+                if not is_free_role:
+                    total_subs_actual += current_sum
 
-                if current_sum > role_limit and not is_content_package and len(active_people) > 0:
+                if not is_free_role and current_sum > role_limit and not is_content_package and len(active_people) > 0:
                     err_sub = f"Проект «{proj}», роль «{s_role}»: сумма ({current_sum} ₽) превышает базовый лимит ({role_limit} ₽)."
                     st.error(f"⚠️ Превышение лимита бюджета! {err_sub}")
                     validation_errors.append(err_sub)
@@ -1271,9 +1279,12 @@ elif page == "🔒 Дашборд руководителя":
                                 for s in p_info["subs"]:
                                     st.markdown(f"• **{s['role']}:** {s['name']} — {s['sum']} ₽ ({s['desc']})")
                                 
-                                unique_roles = set(s['role'] for s in p_info['subs'])
+                                unique_roles = set(s['role'] for s in p_info['subs'] if s['role'] not in FREE_PRICE_ROLES)
                                 planned_subs = sum(get_role_rate(r, selected_period) for r in unique_roles)
-                                actual_subs = sum(s['sum'] for s in p_info['subs'])
+                                actual_subs = sum(s['sum'] for s in p_info['subs'] if s['role'] not in FREE_PRICE_ROLES)
+                                free_subs = sum(s['sum'] for s in p_info['subs'] if s['role'] in FREE_PRICE_ROLES)
+                                if free_subs > 0:
+                                    st.markdown(f"**Упаковка сообщества (свободная сумма):** {free_subs:,.0f} ₽".replace(",", " "))
                                 
                                 st.markdown("---")
                                 st.markdown(f"**Заложено по смете ролей исполнителей:** **{planned_subs:,.0f} ₽**".replace(",", " "))
