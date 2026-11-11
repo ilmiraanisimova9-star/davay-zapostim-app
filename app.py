@@ -72,16 +72,66 @@ brand_css = """
 """
 st.markdown(brand_css, unsafe_allow_html=True)
 
+# ---------- Запоминание выбора в адресе страницы (переживает перезагрузку) ----------
+def qp_get(key):
+    try:
+        return st.query_params.get(key)
+    except Exception:
+        return None
+
+def qp_set(key, val):
+    try:
+        if val is None or val == "":
+            if key in st.query_params:
+                del st.query_params[key]
+        elif st.query_params.get(key) != str(val):
+            st.query_params[key] = str(val)
+    except Exception:
+        pass
+
+def remembered_select(label, options, key, qp_key, placeholder=None, allow_empty=False):
+    """Выпадающий список, который помнит выбор даже после перезагрузки страницы."""
+    if key not in st.session_state:
+        saved = qp_get(qp_key)
+        if saved in options:
+            st.session_state[key] = saved
+    if key in st.session_state and st.session_state[key] not in options:
+        del st.session_state[key]
+    kwargs = {"key": key}
+    if allow_empty and key not in st.session_state:
+        kwargs["index"] = None
+    if placeholder:
+        kwargs["placeholder"] = placeholder
+    value = st.selectbox(label, options, **kwargs)
+    qp_set(qp_key, value)
+    return value
+
+PAGES = ["📝 Сдача отчетов (Менеджеры)", "🔒 Дашборд руководителя"]
+if "nav_page" not in st.session_state:
+    st.session_state["nav_page"] = PAGES[1] if qp_get("p") == "dash" else PAGES[0]
+
 st.sidebar.title("⚡ ДАВАЙ ЗАПОСТИМ!")
-page = st.sidebar.radio("Выберите раздел:", ["📝 Сдача отчетов (Менеджеры)", "🔒 Дашборд руководителя"])
+page = st.sidebar.radio("Выберите раздел:", PAGES, key="nav_page")
+qp_set("p", "dash" if page == PAGES[1] else None)
 
 managers_list = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева", "➕ Ввести другое имя"
 ]
 
+# С этими людьми больше не работаем: в старых отчетах они остаются, но в списках не предлагаются
+EXCLUDED_PEOPLE = {"Светлана Кулешова", "Маргарита Демяшкина"}
+
+def _norm_name(n):
+    return " ".join(str(n).split()).lower()
+
+EXCLUDED_NORM = {_norm_name(x) for x in EXCLUDED_PEOPLE}
+
+def is_excluded(name):
+    return _norm_name(name) in EXCLUDED_NORM
+
 default_specialists = [
     "Анастасия Мальцева", "Софья Мальцева", "Христина Рочева",
-    "Светлана Кулешова", "Злата Курашова", "Вероника Липина",
+    "Злата Курашова", "Вероника Липина",
     "Юлия Лодыгина", "Ева Гусева", "Дарья Витязева",
     "Виталина Куликова", "Софья Супрун"
 ]
@@ -514,6 +564,51 @@ def preview_dialog_window():
                     st.error(f"Ошибка сохранения: статус {res.status_code}")
             except Exception as e:
                 st.error(f"Ошибка соединения: {e}")
+
+# ---------- Общие списки: всё, что кто-то из менеджеров уже вводил, видят все ----------
+def _valid_text(v):
+    t = " ".join(str(v or "").split())
+    return t if t and t.lower() not in ("nan", "none", "черновик") else ""
+
+@st.cache_data(ttl=60, show_spinner=False)
+def build_shared_lists():
+    rows = []
+    for sheet in (None, "Черновики"):
+        try:
+            rows += fetch_sheet(sheet)
+        except Exception:
+            pass
+    mgrs, people, projs = [], [], []
+    def add(lst, v):
+        if v and v not in lst:
+            lst.append(v)
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        m = clean_person_name(_valid_text(r.get("Исполнитель")))
+        add(mgrs, m)
+        add(people, m)
+        add(projs, _valid_text(r.get("Проект")))
+        details = str(r.get("Детали и KPI", "") or "")
+        for pm in parse_all_pm_entries(details, m):
+            add(people, clean_person_name(_valid_text(pm["name"])))
+        for sub in parse_subcontractors_from_details(details):
+            add(people, clean_person_name(_valid_text(sub["name"])))
+    return mgrs, people, projs
+
+try:
+    _shared_mgrs, _shared_people, _shared_projs = build_shared_lists()
+except Exception:
+    _shared_mgrs, _shared_people, _shared_projs = [], [], []
+
+for _p in _shared_projs:
+    if _p not in st.session_state["projects_pool"]:
+        st.session_state["projects_pool"].append(_p)
+for _n in _shared_people:
+    if not is_excluded(_n) and _n not in st.session_state["team_pool"]:
+        st.session_state["team_pool"].append(_n)
+_extra_mgrs = [m for m in _shared_mgrs if m not in managers_list and not is_excluded(m)]
+managers_list = managers_list[:-1] + sorted(_extra_mgrs) + [managers_list[-1]]
 
 # ----------------------------------------------------
 # СТРАНИЦА 1: ФОРМА ДЛЯ ПРОЕКТНОГО МЕНЕДЖЕРА
@@ -1061,6 +1156,10 @@ if page == "📝 Сдача отчетов (Менеджеры)":
 elif page == "🔒 Дашборд руководителя":
     st.title("🔒 Дашборд руководителя")
     
+    # Вход только по паролю. В адресе страницы никаких «ключей» доступа нет,
+    # поэтому пересланная ссылка не открывает дашборд без пароля.
+    qp_set("k", None)
+
     if not st.session_state["is_admin_auth"]:
         c_pwd1, c_pwd2 = st.columns([3, 1])
         with c_pwd1:
@@ -1077,6 +1176,8 @@ elif page == "🔒 Дашборд руководителя":
     else:
         if st.sidebar.button("🚪 Выйти из дашборда"):
             st.session_state["is_admin_auth"] = False
+            for _k in ("k", "per", "pm", "proj", "who"):
+                qp_set(_k, None)
             st.rerun()
 
     if st.sidebar.button("🔄 Обновить данные"):
@@ -1093,11 +1194,11 @@ elif page == "🔒 Дашборд руководителя":
                 
                 c_filter1, c_filter2 = st.columns(2)
                 with c_filter1:
-                    selected_period = st.selectbox(
-                        "Отчетный период:", 
+                    selected_period = remembered_select(
+                        "Отчетный период:",
                         sorted_periods if sorted_periods else periods,
-                        index=None,
-                        placeholder="Выберите период..."
+                        key="dash_period", qp_key="per",
+                        placeholder="Выберите период...", allow_empty=True
                     )
                 
                 if not selected_period:
@@ -1108,7 +1209,7 @@ elif page == "🔒 Дашборд руководителя":
                 
                 available_pms = ["Все менеджеры (общая сводка)"] + sorted(period_df["Исполнитель"].dropna().unique().tolist())
                 with c_filter2:
-                    selected_pm_filter = st.selectbox("Фильтр по менеджеру отчета:", available_pms)
+                    selected_pm_filter = remembered_select("Фильтр по менеджеру отчета:", available_pms, key="dash_pm", qp_key="pm")
 
                 if selected_pm_filter != "Все менеджеры (общая сводка)":
                     filtered_df = period_df[period_df["Исполнитель"] == selected_pm_filter]
@@ -1249,7 +1350,7 @@ elif page == "🔒 Дашборд руководителя":
                 st.dataframe(df_proj, use_container_width=True, hide_index=True)
                 
                 with st.expander("🔍 Карточка проекта: затраты и исполнители", expanded=True):
-                    selected_detail_proj = st.selectbox("Выберите проект для изучения:", list(project_details_map.keys()))
+                    selected_detail_proj = remembered_select("Выберите проект для изучения:", list(project_details_map.keys()), key="dash_proj", qp_key="proj")
                     if selected_detail_proj:
                         p_info = project_details_map[selected_detail_proj]
                         
@@ -1360,7 +1461,7 @@ elif page == "🔒 Дашборд руководителя":
 
                 with st.expander("💳 Расчетный лист по специалисту перед переводом", expanded=True):
                     c_names_list = [row["Специалист"] for row in summary_contractors]
-                    chosen_c = st.selectbox("Выберите специалиста для проверки:", c_names_list)
+                    chosen_c = remembered_select("Выберите специалиста для проверки:", c_names_list, key="dash_who", qp_key="who")
                     if chosen_c:
                         c_record = next(item for item in summary_contractors if item["Специалист"] == chosen_c)
                         c_data = c_record["raw_data"]
